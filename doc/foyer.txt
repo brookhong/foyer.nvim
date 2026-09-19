@@ -10,9 +10,10 @@ CONTENTS                                                      *foyer-contents*
     2. Requirements ................ |foyer-requirements|
     3. Setup ....................... |foyer-setup|
     4. API ......................... |foyer-api|
-    5. Mappings .................... |foyer-mappings|
-    6. Highlights .................. |foyer-highlights|
-    7. Limitations ................. |foyer-limitations|
+    5. Agent context ............... |foyer-context|
+    6. Mappings .................... |foyer-mappings|
+    7. Highlights .................. |foyer-highlights|
+    8. Limitations ................. |foyer-limitations|
 
 ==============================================================================
 1. INTRODUCTION                                           *foyer-introduction*
@@ -53,11 +54,6 @@ commands ~
     - a function `f(project_root, launch_info)` returning either of the above.
       It is called every time, so the terminal can depend on the project.
 
-builders ~
-    Table of command rewriters, keyed by the same character. Each value is a
-    function `f(cmd, launch_info)` returning the text to actually send. Use it
-    to append context, wrap the command, and so on.
-
 root_markers ~
     List of directory markers used to locate the project root that scopes
     terminals, as accepted by |vim.fs.root()|. Defaults to
@@ -70,20 +66,17 @@ Example: >lua
             g = 'gdb',
             a = { 'opencode', '-c' },
         },
-        builders = {
-            a = function(cmd, launch_info)
-                return cmd .. '\n\nCURRENT_FILE: ' .. launch_info.current_file
-            end,
-        },
     })
 <
                                                                   *foyer-opts*
                                                            *foyer.launch_info*
 launch_info ~
-    An arbitrary table you hand to |foyer.terminal_command()| or
-    |foyer.send_terminal_command()|. It is passed through untouched to both
-    the `commands` resolver and the `builders` function; the plugin never
-    inspects it. The usual convention is: >lua
+    The context a prompt was composed with. |foyer.terminal_command()|,
+    |foyer.send_terminal_command()| and |foyer.open_terminal()| capture it
+    themselves, so a mapping does no bookkeeping. Passing one explicitly
+    overrides the capture. It reaches the `commands` resolver
+    untouched -- the plugin never inspects it -- and is published per terminal
+    for an agent to read later, see |foyer-context|. The shape is: >lua
         {
             current_file = vim.fn.expand('%:p'),
             current_line = vim.fn.line('.'),
@@ -91,12 +84,15 @@ launch_info ~
             end_line = vim.fn.line('.'),     -- visual mode only
         }
 <
+    Any other key you add travels with it, all the way to the agent.
+
 Command {opts} accepted by |foyer.terminal_command()| and
 |foyer.send_terminal_command()|:
 
     command       Send this text instead of opening a command buffer.
     interactive   Force the command buffer open even when `command` is set.
-    selection     Set to `'@'` to seed the command buffer from register a.
+    selection     `'@'` seeds the command buffer from register a. Set for you
+                  when the send starts in Visual mode.
     win_type      `'sidebar'` for a right-hand split; otherwise floating.
     auto_start    Spawn the terminal if it does not exist yet.
     launch_info   See |foyer.launch_info|.
@@ -130,12 +126,6 @@ edit_selection()
     selection with the result. Must be called from Visual mode. Uses register
     a as the transport.
 
-                                              *foyer.setup_terminal_keymaps()*
-setup_terminal_keymaps({buf})
-    Apply this plugin's terminal-buffer mappings and output tracking to a
-    terminal buffer you created yourself. Idempotent, so it is safe to call on
-    every toggle.
-
                                                              *foyer.is_idle()*
 is_idle({buf}, {threshold_ms})
     Return true when {buf} has produced no output for {threshold_ms}
@@ -143,8 +133,81 @@ is_idle({buf}, {threshold_ms})
     is still busy, in which case the terminal is shown instead of a new
     command buffer.
 
+                                                       *foyer.open_terminal()*
+open_terminal({name}, {command}, {opts})
+    Open, or switch to, a terminal that is not scoped to a project: one reused
+    buffer per {name}, spawned in `opts.cwd` (default $HOME). Use it for an
+    agent you want one long conversation with wherever you are; the `commands`
+    terminals of |foyer.setup()| are keyed by project root instead.
+
+    {name} keys both the reused buffer and the context file, so keep it short.
+    {opts} may carry `cwd` and `launch_info`; the context is published on
+    every call, switch or spawn, so an agent already running in there learns
+    where you are now. Returns the terminal buffer.
+>lua
+        vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
+            foyer.open_terminal('opencode', 'opencode -c')
+        end, { desc = 'Home opencode terminal' })
+<
+    The context and the terminal-buffer mappings are handled for you; a
+    terminal spawned by hand gets neither. Note that this does not open one of
+    this plugin's own windows, so only the <C-x> mappings are attached, see
+    |foyer-mappings|.
+
 ==============================================================================
-5. MAPPINGS                                                   *foyer-mappings*
+5. AGENT CONTEXT                                               *foyer-context*
+
+On every send, the |foyer.launch_info| attached to it is written as JSON to a
+file per terminal, and every terminal this plugin spawns has $FOYER_CONTEXT in
+its environment naming that file: >console
+
+    $ cat "$FOYER_CONTEXT"
+    {"captured_at":"2026-09-22T15:59:07+0800","captured_unix":1790063947,
+     "launch_info":{"current_file":"/repo/src/main.c","current_line":88,
+                    "start_line":30,"end_line":36}}
+<
+That is the whole interface -- a file an agent reads when it needs it. What
+remains is telling the agent it is there.
+
+`skills/foyer-editor-context/SKILL.md` in this repository does that as an
+agent skill: only its one-line description sits in the model's context, and
+the body is loaded on demand, when a request actually points at the editor.
+Symlink it into whichever skill directory your CLI scans --
+`~/.config/opencode/skills/`, `~/.kiro/skills/`, `~/.claude/skills/` --
+keeping the directory name: >
+
+    mkdir -p ~/.config/opencode/skills/foyer-editor-context
+    ln -sf /path/to/foyer.nvim/skills/foyer-editor-context/SKILL.md \
+        ~/.config/opencode/skills/foyer-editor-context/SKILL.md
+<
+A CLI with no skill mechanism can carry the same thing as an always-loaded
+rule (`AGENTS.md`, `CLAUDE.md`, `~/.kiro/steering/*.md`), at the cost of those
+tokens on every request: >
+
+    When $FOYER_CONTEXT is set it names a JSON file holding the file, line
+    and selection the user had when they wrote their prompt. Read it with
+    `cat "$FOYER_CONTEXT"` before acting on "this file", "here", "this line"
+    or "my selection". If it is unset, ask which file is meant.
+<
+Each terminal has its own file, so an agent in one project never reads a path
+attached for another. |foyer.open_terminal()| covers terminals outside the
+project-scoped `commands`; one opened by hand has neither the variable nor a
+send to trigger a publish, and its agent has nothing to read.
+
+The files live in `stdpath('cache')/foyer/`, one per terminal, and are removed
+on |VimLeavePre|. A terminal closed and reopened keeps its file, so a long
+session does not litter the directory.
+
+Publishing never takes a send down with it. A `launch_info` holding something
+|vim.json.encode()| refuses, or a cache directory that cannot be written,
+warns and the command is sent anyway.
+
+The snapshot ages. `captured_at` and `captured_unix` are published so a model
+can notice that "fix this function" was said twenty minutes ago, and ask
+rather than assume.
+
+==============================================================================
+6. MAPPINGS                                                   *foyer-mappings*
 
 All mappings below are buffer-local, created by the plugin, and currently not
 configurable.
@@ -167,6 +230,10 @@ entries containing it, and highlights the match with |hl-FoyerMatch|.
 
 In the terminal buffer ~
 
+The <C-x> mappings and the yank fix are on every terminal this plugin opens;
+the rest are attached when a terminal is shown in one of this plugin's own
+windows, which |foyer.open_terminal()| does not do.
+
     [p                n    Jump to the previous shell prompt
     ]p                n    Jump to the next shell prompt
     <C-r>             n    cd to the project root, re-learn the prompt
@@ -180,7 +247,7 @@ Yanking in a terminal buffer strips trailing whitespace from every line, since
 a terminal pads its lines out to the window width.
 
 ==============================================================================
-6. HIGHLIGHTS                                               *foyer-highlights*
+7. HIGHLIGHTS                                               *foyer-highlights*
 
                                                                *hl-FoyerMatch*
 FoyerMatch
@@ -189,10 +256,11 @@ FoyerMatch
     colorscheme or an explicit |nvim_set_hl()| wins.
 
 ==============================================================================
-7. LIMITATIONS                                             *foyer-limitations*
+8. LIMITATIONS                                             *foyer-limitations*
 
-- Register a is used as the transport for selections and pastes, and is
-  clobbered by |foyer.edit_selection()|.
+- Register a is the transport for selections and pastes: a send from Visual
+  mode yanks into it, and a command buffer seeded from it consumes and clears
+  it. |foyer.edit_selection()| does the same.
 - Reading the command line works by sending an erase sequence (CTRL-U, or ESC
   for cmd.exe) and observing where the cursor lands, with short timers to let
   the shell respond. This is heuristic: an unusual prompt or a very slow shell
