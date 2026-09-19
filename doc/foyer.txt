@@ -1,0 +1,202 @@
+*foyer.txt*   Edit what you send to a terminal in a real buffer first
+
+Author:  Brook Hong
+License: MIT
+
+==============================================================================
+CONTENTS                                                      *foyer-contents*
+
+    1. Introduction ................ |foyer-introduction|
+    2. Requirements ................ |foyer-requirements|
+    3. Setup ....................... |foyer-setup|
+    4. API ......................... |foyer-api|
+    5. Mappings .................... |foyer-mappings|
+    6. Highlights .................. |foyer-highlights|
+    7. Limitations ................. |foyer-limitations|
+
+==============================================================================
+1. INTRODUCTION                                           *foyer-introduction*
+
+*foyer.nvim* puts a normal, modifiable buffer in front of a |terminal| buffer.
+You compose a command with the full power of Vim, press <CR>, and the text is
+sent to the shell.
+
+A foyer is the room you pass through on the way in. Nothing reaches the shell
+until you are done with it here.
+
+It also manages named, project-scoped terminals, keeps a persistent per
+terminal command history, and can edit a visual selection in a scratch window.
+
+The plugin defines no global mappings. See |foyer-api| and wire up the
+functions you want.
+
+==============================================================================
+2. REQUIREMENTS                                           *foyer-requirements*
+
+Neovim 0.10 or newer. No other dependencies.
+
+==============================================================================
+3. SETUP                                                         *foyer-setup*
+
+                                                               *foyer.setup()*
+setup({opts})
+
+{opts} is a table with the following keys. All are optional.
+
+commands ~
+    Table of terminals, keyed by the single character that selects them in
+    |foyer.terminal_command()|. Each value is one of:
+
+    - a string: the command to run, e.g. `'zsh'`
+    - a table `{ command, arguments }`; the first element doubles as the
+      display name in the window title
+    - a function `f(project_root, launch_info)` returning either of the above.
+      It is called every time, so the terminal can depend on the project.
+
+builders ~
+    Table of command rewriters, keyed by the same character. Each value is a
+    function `f(cmd, launch_info)` returning the text to actually send. Use it
+    to append context, wrap the command, and so on.
+
+root_markers ~
+    List of directory markers used to locate the project root that scopes
+    terminals, as accepted by |vim.fs.root()|. Defaults to
+    `vim.g.root_markers`, then `{ '.git' }`.
+
+Example: >lua
+    require('foyer').setup({
+        commands = {
+            z = 'zsh',
+            g = 'gdb',
+            a = { 'opencode', '-c' },
+        },
+        builders = {
+            a = function(cmd, launch_info)
+                return cmd .. '\n\nCURRENT_FILE: ' .. launch_info.current_file
+            end,
+        },
+    })
+<
+                                                                  *foyer-opts*
+                                                           *foyer.launch_info*
+launch_info ~
+    An arbitrary table you hand to |foyer.terminal_command()| or
+    |foyer.send_terminal_command()|. It is passed through untouched to both
+    the `commands` resolver and the `builders` function; the plugin never
+    inspects it. The usual convention is: >lua
+        {
+            current_file = vim.fn.expand('%:p'),
+            current_line = vim.fn.line('.'),
+            start_line = vim.fn.line('v'),   -- visual mode only
+            end_line = vim.fn.line('.'),     -- visual mode only
+        }
+<
+Command {opts} accepted by |foyer.terminal_command()| and
+|foyer.send_terminal_command()|:
+
+    command       Send this text instead of opening a command buffer.
+    interactive   Force the command buffer open even when `command` is set.
+    selection     Set to `'@'` to seed the command buffer from register a.
+    win_type      `'sidebar'` for a right-hand split; otherwise floating.
+    auto_start    Spawn the terminal if it does not exist yet.
+    launch_info   See |foyer.launch_info|.
+
+==============================================================================
+4. API                                                             *foyer-api*
+
+                                                    *foyer.terminal_command()*
+terminal_command({opts})
+    Read one character, resolve it against `commands`, spawn that terminal if
+    it is not running for the current project root, then open a command buffer
+    for it. An unknown character lists the available terminals via
+    |vim.notify()|.
+
+                                               *foyer.send_terminal_command()*
+send_terminal_command({term_key}, {opts})
+    Drive a specific terminal without prompting for a character. With
+    `opts.command` set, the text is sent non-interactively; otherwise a
+    command buffer opens. With `opts.auto_start` the terminal is created if it
+    is missing.
+
+                                                          *foyer.edit_input()*
+edit_input()
+    Lift the terminal's current, half-typed command line into a floating
+    buffer and write the edited result back to the prompt. Must be called from
+    a terminal buffer, in Normal mode.
+
+                                                      *foyer.edit_selection()*
+edit_selection()
+    Open the current visual selection in a floating buffer and replace the
+    selection with the result. Must be called from Visual mode. Uses register
+    a as the transport.
+
+                                              *foyer.setup_terminal_keymaps()*
+setup_terminal_keymaps({buf})
+    Apply this plugin's terminal-buffer mappings and output tracking to a
+    terminal buffer you created yourself. Idempotent, so it is safe to call on
+    every toggle.
+
+                                                             *foyer.is_idle()*
+is_idle({buf}, {threshold_ms})
+    Return true when {buf} has produced no output for {threshold_ms}
+    milliseconds (default 1000). Used internally to decide whether a terminal
+    is still busy, in which case the terminal is shown instead of a new
+    command buffer.
+
+==============================================================================
+5. MAPPINGS                                                   *foyer-mappings*
+
+All mappings below are buffer-local, created by the plugin, and currently not
+configurable.
+
+In the command buffer ~
+
+    <CR>              n    Send the buffer to the terminal
+    <C-s>             i    Send the buffer to the terminal
+    <C-p>, <Up>       n i  Previous history entry, filtered by what you typed
+    <C-n>, <Down>     n i  Next history entry
+    <C-x><C-p>        i    Ordinary insert-mode completion
+    <C-x><C-n>        i    Ordinary insert-mode completion
+    <Esc>             n    Close the window if the buffer is empty
+    <C-c>             n    Close the window, discarding the draft
+    <C-x><C-x>        n    Toggle default size / full screen
+
+History is stored per terminal name in `stdpath('cache')/foyer.json` and
+survives restarts. Typing text before pressing <C-p> filters the history to
+entries containing it, and highlights the match with |hl-FoyerMatch|.
+
+In the terminal buffer ~
+
+    [p                n    Jump to the previous shell prompt
+    ]p                n    Jump to the next shell prompt
+    <C-r>             n    cd to the project root, re-learn the prompt
+    x                 n    Toggle default size / full screen
+    <CR>, <C-c>, <Esc> n   Close the terminal window
+    <C-x>i            t    Paste register a at the prompt
+    <C-x>w            t    Switch window, or tab if there is only one window
+    <C-x>c            t    Close the terminal buffer
+
+Yanking in a terminal buffer strips trailing whitespace from every line, since
+a terminal pads its lines out to the window width.
+
+==============================================================================
+6. HIGHLIGHTS                                               *foyer-highlights*
+
+                                                               *hl-FoyerMatch*
+FoyerMatch
+    The filter text matched inside the history palette. Defaults to
+    `bg=#333333 fg=#ff7700 bold`, declared with `default = true` so your
+    colorscheme or an explicit |nvim_set_hl()| wins.
+
+==============================================================================
+7. LIMITATIONS                                             *foyer-limitations*
+
+- Register a is used as the transport for selections and pastes, and is
+  clobbered by |foyer.edit_selection()|.
+- Reading the command line works by sending an erase sequence (CTRL-U, or ESC
+  for cmd.exe) and observing where the cursor lands, with short timers to let
+  the shell respond. This is heuristic: an unusual prompt or a very slow shell
+  can confuse it.
+- Timings, mappings, and the register are hardcoded.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
