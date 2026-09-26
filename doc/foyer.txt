@@ -126,6 +126,14 @@ edit_selection()
     selection with the result. Must be called from Visual mode. Uses register
     a as the transport.
 
+                                                    *foyer.toggle_full_size()*
+toggle_full_size()
+    Toggle the current window between full screen and the size it had before:
+    height for a float, width for a split. The size is remembered per window,
+    so two windows toggle independently. Full screen is a request, not a
+    promise: a neighbouring split keeps its minimum width, so a split may stop
+    a few columns short of 'columns'.
+
                                                              *foyer.is_idle()*
 is_idle({buf}, {threshold_ms})
     Return true when {buf} has produced no output for {threshold_ms}
@@ -222,7 +230,7 @@ In the command buffer ~
     <C-x><C-n>        i    Ordinary insert-mode completion
     <Esc>             n    Close the window if the buffer is empty
     <C-c>             n    Close the window, discarding the draft
-    <C-x><C-x>        n    Toggle default size / full screen
+    <C-x><C-x>        n    Toggle previous size / full screen
 
 History is stored per terminal name in `stdpath('cache')/foyer.json` and
 survives restarts. Typing text before pressing <C-p> filters the history to
@@ -237,7 +245,7 @@ windows, which |foyer.open_terminal()| does not do.
     [p                n    Jump to the previous shell prompt
     ]p                n    Jump to the next shell prompt
     <C-r>             n    cd to the project root, re-learn the prompt
-    x                 n    Toggle default size / full screen
+    x                 n    Toggle previous size / full screen
     <CR>, <C-c>, <Esc> n   Close the terminal window
     <C-x>i            t    Paste register a at the prompt
     <C-x>w            t    Switch window, or tab if there is only one window

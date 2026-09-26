@@ -212,30 +212,31 @@ local function get_osc_commands(term_bufnr)
     return { "\x15", "\x15\x0c" }
 end
 
--- Map `key` to toggle the window between the size it has now and full screen:
--- height for a float, width for a sidebar split.
-local function create_keymap_x(bufnr, win_id, key)
+-- Toggle the current window between full screen and the size it had before:
+-- height for a float, width for a split. The remembered size is window-local,
+-- so it dies with the window. Full is a request, not a promise: a neighbouring
+-- split keeps its minimum width, so the window may stop short of 'columns'.
+function M.toggle_full_size()
+    local win_id = vim.api.nvim_get_current_win()
     local is_float = vim.api.nvim_win_get_config(win_id).relative ~= ''
-    if is_float then
-        local height = vim.api.nvim_win_get_config(win_id).height
-        vim.keymap.set('n', key, function()
-            if vim.api.nvim_win_is_valid(win_id) then
-                local win_config = vim.api.nvim_win_get_config(win_id)
-                local new_height = win_config.height == height and (vim.o.lines - 4) or height
-                vim.api.nvim_win_set_config(win_id, vim.tbl_extend('force', win_config, {height = new_height}))
-            end
-        end, {silent = true, buffer = bufnr})
-    else
-        local width = vim.api.nvim_win_get_width(win_id)
-        vim.keymap.set('n', key, function()
-            if vim.api.nvim_win_is_valid(win_id) then
-                local cur_width = vim.api.nvim_win_get_width(win_id)
-                local new_width = cur_width == width and vim.o.columns or width
-                vim.api.nvim_win_set_width(win_id, new_width)
-            end
-        end, {silent = true, buffer = bufnr})
-    end
+    local get = is_float and vim.api.nvim_win_get_height or vim.api.nvim_win_get_width
+    local set = is_float and vim.api.nvim_win_set_height or vim.api.nvim_win_set_width
+    -- A float starts one row down and wears a border, so it cannot take every line.
+    local full = is_float and (vim.o.lines - 4) or vim.o.columns
 
+    local saved = vim.w[win_id].foyer_saved_size
+    if saved then
+        vim.w[win_id].foyer_saved_size = nil
+        set(win_id, saved)
+    else
+        vim.w[win_id].foyer_saved_size = get(win_id)
+        set(win_id, full)
+    end
+end
+
+-- Map `key` to toggle the window between its current size and full screen.
+local function create_keymap_x(bufnr, key)
+    vim.keymap.set('n', key, M.toggle_full_size, {silent = true, buffer = bufnr})
     vim.keymap.set('n', '<C-o>', '<C-6>', {silent = true, buffer = bufnr})
 end
 
@@ -316,7 +317,7 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
         end, {silent = true, buffer = term_bufnr})
     end
 
-    create_keymap_x(term_bufnr, win_id, 'x')
+    create_keymap_x(term_bufnr, 'x')
     setup_terminal_keymaps(term_bufnr)
 
     vim.keymap.set('n', '<C-r>', function()
@@ -396,7 +397,7 @@ local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
 
     vim.keymap.set('n', '<CR>', on_enter, {silent = true, buffer = bufnr})
     vim.keymap.set('i', '<C-s>', on_enter, {silent = true, buffer = bufnr})
-    create_keymap_x(bufnr, win_id, '<C-x><C-x>')
+    create_keymap_x(bufnr, '<C-x><C-x>')
 end
 
 local function init_command_buf(bufnr, win_id, lines, on_command_input)

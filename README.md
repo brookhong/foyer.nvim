@@ -139,6 +139,7 @@ end, { desc = 'Edit selection in floating window' })
 | `send_terminal_command(term_key, opts)` | Drive a specific terminal directly. `opts.command` sends non-interactively; omit it to open the command buffer. `opts.auto_start = true` spawns the terminal if it is missing. |
 | `edit_input()` | Lift the terminal's current command line into a floating buffer. Must be called from a terminal buffer. |
 | `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |
+| `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float, width for a split. A neighbouring split keeps its minimum width, so a split may stop a few columns short. |
 | `is_idle(buf, threshold_ms)` | Whether `buf` has produced no output for `threshold_ms` (default 1000). |
 | `open_terminal(name, command, opts)` | A terminal that is not project-scoped: one reused buffer per `name`, spawned in `opts.cwd` (default `$HOME`), context published and keymaps applied. For an agent you keep one conversation with wherever you are. |
 
@@ -231,7 +232,7 @@ These are buffer-local and currently not configurable.
 | `<C-x><C-p>` / `<C-x><C-n>` | i | Ordinary insert-mode completion |
 | `<Esc>` | n | Close the window if the buffer is empty |
 | `<C-c>` | n | Close the window, discarding the draft |
-| `<C-x><C-x>` | n | Toggle the window between its default size and full screen |
+| `<C-x><C-x>` | n | Toggle the window between its previous size and full screen |
 
 ### Terminal buffer
 
@@ -244,7 +245,7 @@ those three.
 | --- | --- | --- |
 | `[p` / `]p` | n | Jump to the previous / next shell prompt |
 | `<C-r>` | n | `cd` the terminal to the project root and re-learn the prompt |
-| `x` | n | Toggle the window between its default size and full screen |
+| `x` | n | Toggle the window between its previous size and full screen |
 | `<CR>` / `<C-c>` / `<Esc>` | n | Close the terminal window |
 | `<C-x>i` | t | Paste register `a` at the prompt |
 | `<C-x>w` | t | Switch window, or tab when there is only one window |
