@@ -234,6 +234,29 @@ function M.toggle_full_size()
     end
 end
 
+-- Whether the window leaves no neighbour worth stepping into: it was maximised
+-- with M.toggle_full_size(), so the others are squeezed down to a sliver, or it
+-- is the tab page's only real window and anything else is a float over it.
+local function is_full_size(win_id)
+    if vim.w[win_id].foyer_saved_size then return true end
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if win ~= win_id and vim.api.nvim_win_get_config(win).relative == '' then
+            return false
+        end
+    end
+    return true
+end
+
+-- Move to the next window, or to the alternate buffer when there is nowhere
+-- worth going.
+function M.tab_switch()
+    if is_full_size(vim.api.nvim_get_current_win()) then
+        vim.cmd('b#')
+    else
+        vim.cmd('wincmd w')
+    end
+end
+
 -- Map `key` to toggle the window between its current size and full screen.
 local function create_keymap_x(bufnr, key)
     vim.keymap.set('n', key, M.toggle_full_size, {silent = true, buffer = bufnr})

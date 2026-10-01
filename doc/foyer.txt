@@ -134,6 +134,14 @@ toggle_full_size()
     promise: a neighbouring split keeps its minimum width, so a split may stop
     a few columns short of 'columns'.
 
+                                                          *foyer.tab_switch()*
+tab_switch()
+    Move to the next window, like CTRL-W w. When there is nowhere worth going,
+    switch to the alternate buffer instead, like CTRL-^, leaving the window
+    alone. That is the case for a window |foyer.toggle_full_size()| maximised,
+    whose neighbours are squeezed down to a sliver, and for the tab page's only
+    real window, with or without a float sitting over it.
+
                                                              *foyer.is_idle()*
 is_idle({buf}, {threshold_ms})
     Return true when {buf} has produced no output for {threshold_ms}
