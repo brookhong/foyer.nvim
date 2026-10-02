@@ -234,27 +234,55 @@ function M.toggle_full_size()
     end
 end
 
--- Whether the window leaves no neighbour worth stepping into: it was maximised
--- with M.toggle_full_size(), so the others are squeezed down to a sliver, or it
--- is the tab page's only real window and anything else is a float over it.
-local function is_full_size(win_id)
-    if vim.w[win_id].foyer_saved_size then return true end
-    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-        if win ~= win_id and vim.api.nvim_win_get_config(win).relative == '' then
-            return false
-        end
-    end
-    return true
+-- A window the layout squeezed down to 'winminwidth'/'winminheight' is not one
+-- anybody chose to look at: that is exactly what a neighbour is left with when
+-- another window takes the whole screen.
+local function is_sliver(win_id)
+    return vim.api.nvim_win_get_width(win_id) <= vim.o.winminwidth
+        or vim.api.nvim_win_get_height(win_id) <= vim.o.winminheight
 end
 
--- Move to the next window, or to the alternate buffer when there is nowhere
--- worth going.
-function M.tab_switch()
-    if is_full_size(vim.api.nvim_get_current_win()) then
-        vim.cmd('b#')
-    else
-        vim.cmd('wincmd w')
+-- The tab page's other windows in CTRL-W w order, starting after the current
+-- one and wrapping around. Floats are left out: one sitting over a window is
+-- not a destination, and does not make that window any less full.
+local function other_wins()
+    local wins = {}
+    local last = vim.fn.winnr('$')
+    local cur = vim.fn.winnr()
+    for i = 1, last - 1 do
+        local win = vim.fn.win_getid((cur + i - 1) % last + 1)
+        if vim.api.nvim_win_get_config(win).relative == '' then
+            table.insert(wins, win)
+        end
     end
+    return wins
+end
+
+-- Move to the next window worth looking at, skipping the slivers, or switch to
+-- the alternate buffer when the screen holds nothing else: no other window, or
+-- only ones squeezed flat by a window filling the screen. Roominess is measured
+-- on the spot rather than read back from toggle_full_size(), whose saved size
+-- outlives the layout it was taken in — a window would otherwise go on claiming
+-- to be full after the user closed or resized the neighbour it had squeezed.
+function M.tab_switch()
+    local others = other_wins()
+    for _, win in ipairs(others) do
+        if not is_sliver(win) then
+            vim.api.nvim_set_current_win(win)
+            return
+        end
+    end
+
+    if #others > 0 and vim.wo.diff and vim.w.foyer_saved_size then
+        -- A diff is only readable beside its other half, so give the squeezed
+        -- pane its size back and step into it. Restoring drops the saved size,
+        -- so the second pass cannot arrive back here.
+        M.toggle_full_size()
+        M.tab_switch()
+        return
+    end
+
+    vim.cmd('b#')
 end
 
 -- Map `key` to toggle the window between its current size and full screen.

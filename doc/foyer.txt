@@ -136,11 +136,20 @@ toggle_full_size()
 
                                                           *foyer.tab_switch()*
 tab_switch()
-    Move to the next window, like CTRL-W w. When there is nowhere worth going,
-    switch to the alternate buffer instead, like CTRL-^, leaving the window
-    alone. That is the case for a window |foyer.toggle_full_size()| maximised,
-    whose neighbours are squeezed down to a sliver, and for the tab page's only
-    real window, with or without a float sitting over it.
+    Move to the next window worth looking at: CTRL-W w order, wrapping around,
+    skipping floats and any window a full-screen neighbour has squeezed down to
+    'winminwidth' or 'winminheight'. With one window on top and two below whose
+    left pane is squeezed, the right-hand pane therefore switches to the top
+    window.
+
+    When nothing is left to step into, the window stays put and the buffer
+    changes instead, like CTRL-^. That happens when the tab page holds no other
+    window — a float over it is not a destination — and when every other window
+    is squeezed flat.
+
+    A diff is the exception: a diff pane maximised with
+    |foyer.toggle_full_size()| gives the squeezed pane its size back and steps
+    into it, because a diff only reads beside its other half.
 
                                                              *foyer.is_idle()*
 is_idle({buf}, {threshold_ms})

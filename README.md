@@ -140,7 +140,7 @@ end, { desc = 'Edit selection in floating window' })
 | `edit_input()` | Lift the terminal's current command line into a floating buffer. Must be called from a terminal buffer. |
 | `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |
 | `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float, width for a split. A neighbouring split keeps its minimum width, so a split may stop a few columns short. |
-| `tab_switch()` | Move to the next window (`CTRL-W w`), or to the alternate buffer (`CTRL-^`) when there is nowhere worth going: a window `toggle_full_size()` maximised, or the tab page's only real window. |
+| `tab_switch()` | Move to the next window worth looking at: `CTRL-W w` order, wrapping around, skipping floats and windows a full-screen neighbour has squeezed to `'winminwidth'`/`'winminheight'`. With nothing left to step into, switches to the alternate buffer (`CTRL-^`) instead. A maximised diff pane restores the squeezed pane and steps into it. |
 | `is_idle(buf, threshold_ms)` | Whether `buf` has produced no output for `threshold_ms` (default 1000). |
 | `open_terminal(name, command, opts)` | A terminal that is not project-scoped: one reused buffer per `name`, spawned in `opts.cwd` (default `$HOME`), context published and keymaps applied. For an agent you keep one conversation with wherever you are. |
 
