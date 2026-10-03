@@ -78,6 +78,10 @@ require('foyer').setup({
     -- Markers used to find the project root that scopes terminals.
     -- Defaults to vim.g.root_markers, then { '.git' }.
     root_markers = { '.git', '.clangd' },
+
+    -- Wrap a multi-line send in bracketed paste. Turn it off for a terminal
+    -- program that does not understand the escapes. Defaults to true.
+    bracketed_paste = true,
 })
 ```
 
@@ -91,9 +95,19 @@ key of your own travels all the way to the agent:
 
 ```lua
 foyer.terminal_command({
-    launch_info = { current_file = vim.fn.expand('%:p'), ticket = 'JIRA-123' },
+    launch_info = {
+        project_root = '/repo',
+        current_file = 'src/main.c',
+        ticket = 'JIRA-123',
+    },
 })
 ```
+
+`current_file` is relative to `project_root`, which is captured alongside it —
+`src/main.c`, the name the project uses, not a path that only means something on
+your machine. The two always travel together: when there is no project root to
+name the file against, the `project_root` key is absent and `current_file` is
+absolute instead.
 
 Passing one yourself opts out of the capture entirely. In a buffer with no file
 — a terminal, a scratch buffer — the captured table is empty, and an empty table
@@ -108,8 +122,9 @@ The plugin defines **no global keymaps**; wire up only what you want.
 local foyer = require('foyer')
 
 -- Pick a terminal by its first character and compose a command for it.
--- From visual mode the selection seeds the prompt; either way the file, line
--- and selected range are captured for the agent. No bookkeeping needed here.
+-- From visual mode the prompt names the selected range with `file:start-end`,
+-- appended as you send; either way the file, line and range are captured for
+-- the agent.
 vim.keymap.set({ 'n', 'v' }, '<leader>a', function()
     foyer.terminal_command({ win_type = 'sidebar' })
 end, { desc = 'Send command to terminal by first char' })
@@ -149,11 +164,31 @@ end, { desc = 'Edit selection in floating window' })
 | Key | Meaning |
 | --- | --- |
 | `command` | Send this text instead of opening a command buffer. |
-| `interactive` | Force the command buffer open even when `command` is set. |
-| `selection` | `'@'` seeds the buffer from register `a`. Set automatically when you start from visual mode. |
+| `interactive` | Force the command buffer open even when `command` is set; `command` then seeds the buffer. |
+| `selection` | A reference appended to the prompt as it is sent. Set for you when the send starts in visual mode. |
 | `win_type` | `'sidebar'` for a right-hand split, otherwise a floating window. |
 | `auto_start` | Spawn the terminal if it does not exist yet. |
 | `launch_info` | Override the captured context. Passed to the `commands` resolver and published for the agent. |
+
+A `selection` never sits in the command buffer: that opens empty and in insert
+mode, with the reference shown in its title, and the reference joins below the
+prompt, after a blank line, as it is sent. So the line stays yours to edit and
+to walk history with, and history remembers the prompt without a file position
+that will not be true next time. Starting from visual mode sets it to
+`current_file:start_line-end_line` — `src/main.c:30-36`, or `src/main.c:30` for
+a single line. Type nothing and nothing is sent; a bare range asks the agent
+nothing.
+
+A sidebar outlives the send that opened it, so sending again aims at the window
+already there rather than splitting another one: a draft still in it is yours
+and stays — only an empty one takes a seeded `command` — with the new reference
+replacing whatever the title advertised before, and the terminal left in there
+by the last send gives the window back to a fresh prompt. A floating window is
+transient and is simply opened again.
+
+A terminal still producing output keeps the window instead of giving it to a
+prompt (see `is_idle`); there is no prompt for a reference to ride on then, so
+it is dropped and said so with `vim.notify`.
 
 ## Giving an agent your editor context
 
@@ -164,8 +199,8 @@ its environment naming that file:
 ```console
 $ cat "$FOYER_CONTEXT"
 {"captured_at":"2026-09-22T15:59:07+0800","captured_unix":1790063947,
- "launch_info":{"current_file":"/repo/src/main.c","current_line":88,
-                "start_line":30,"end_line":36}}
+ "launch_info":{"project_root":"/repo","current_file":"src/main.c",
+                "current_line":88,"start_line":30,"end_line":36}}
 ```
 
 That is the whole interface — a file an agent reads when it needs it. What
@@ -224,16 +259,29 @@ These are buffer-local and currently not configurable.
 
 ### Command buffer
 
+A buffer with something to say already — a lifted command line, a seeded
+`command`, a prompt that is going to carry a `selection` — starts in insert mode
+at the end of its text. One opened with nothing to say starts in normal mode,
+where `<Up>` walks the history.
+
 | Key | Mode | Action |
 | --- | --- | --- |
 | `<CR>` | n | Send the buffer to the terminal |
 | `<C-s>` | i | Send the buffer to the terminal |
-| `<C-p>` / `<Up>` | n, i | Previous history entry (filtered by what you typed) |
-| `<C-n>` / `<Down>` | n, i | Next history entry |
+| `<C-p>` / `<Up>` | n | Previous history entry |
+| `<C-n>` / `<Down>` | n | Next history entry |
+| `<C-p>` / `<C-n>` | i | Previous / next history entry |
 | `<C-x><C-p>` / `<C-x><C-n>` | i | Ordinary insert-mode completion |
 | `<Esc>` | n | Close the window if the buffer is empty |
 | `<C-c>` | n | Close the window, discarding the draft |
 | `<C-x><C-x>` | n | Toggle the window between its previous size and full screen |
+
+History is filtered by what you have typed: with a draft in the buffer, only the
+entries containing it are walked, and the match is highlighted.
+
+`edit_selection()`'s window is text you are editing rather than a prompt: it
+keeps `<CR>`, `<C-s>`, `<Esc>`, `<C-c>` and `<C-x><C-x>`, has no history, and
+always starts in normal mode.
 
 ### Terminal buffer
 
@@ -267,9 +315,17 @@ your colorscheme.
 
 ## Notes and limitations
 
-- Register `a` is the transport for selections and pastes: sending from visual
-  mode yanks into it, and a command buffer seeded from it consumes and clears it.
-  `edit_selection()` does the same.
+- A send containing a newline — a multi-line draft, or any prompt with a
+  `selection` reference under it — is wrapped in bracketed paste, so the
+  receiver inserts the newline instead of reading it as Enter and running the
+  first line alone. What the receiver then does with a multi-line input is its
+  own business: an agent takes it as one prompt, a shell lands it on one command
+  line and still runs each of its lines in turn. A terminal program that does
+  not understand bracketed paste will show the `[200~` escapes as text — turn
+  `bracketed_paste` off for it. Single-line sends are never wrapped.
+- `edit_selection()` goes through register `a`: the selection is yanked into it
+  on the way in, and the edited text on the way back out. `<C-x>i` in a terminal
+  pastes register `a`, whatever put it there.
 - The plugin reads the command line by sending an erase sequence (`Ctrl-U`, or
   `ESC` for `cmd.exe`) and watching where the cursor lands, with short timers to
   let the shell respond. This is inherently heuristic: a shell with an unusual

@@ -59,6 +59,11 @@ root_markers ~
     terminals, as accepted by |vim.fs.root()|. Defaults to
     `vim.g.root_markers`, then `{ '.git' }`.
 
+bracketed_paste ~
+    Whether a multi-line send is wrapped in bracketed paste, see
+    |foyer-limitations|. Turn it off for a terminal program that does not
+    understand the escapes. Defaults to `true`.
+
 Example: >lua
     require('foyer').setup({
         commands = {
@@ -78,24 +83,51 @@ launch_info ~
     untouched -- the plugin never inspects it -- and is published per terminal
     for an agent to read later, see |foyer-context|. The shape is: >lua
         {
-            current_file = vim.fn.expand('%:p'),
-            current_line = vim.fn.line('.'),
-            start_line = vim.fn.line('v'),   -- visual mode only
-            end_line = vim.fn.line('.'),     -- visual mode only
+            project_root = '/repo',
+            current_file = 'src/main.c',   -- relative to project_root
+            current_line = 88,
+            start_line = 30,  -- visual mode only, the lower line number
+            end_line = 36,    -- visual mode only, the higher line number
         }
 <
+    `current_file` is named the way the project names it, not the way your
+    filesystem does. The two keys always travel together: when there is no
+    |foyer-setup| root to name the file against, `project_root` is absent and
+    `current_file` is absolute instead.
+
     Any other key you add travels with it, all the way to the agent.
 
 Command {opts} accepted by |foyer.terminal_command()| and
 |foyer.send_terminal_command()|:
 
     command       Send this text instead of opening a command buffer.
-    interactive   Force the command buffer open even when `command` is set.
-    selection     `'@'` seeds the command buffer from register a. Set for you
-                  when the send starts in Visual mode.
+    interactive   Force the command buffer open even when `command` is set;
+                  `command` then seeds the buffer.
+    selection     A reference appended to the prompt as it is sent. Set for
+                  you when the send starts in Visual mode. See below.
     win_type      `'sidebar'` for a right-hand split; otherwise floating.
     auto_start    Spawn the terminal if it does not exist yet.
     launch_info   See |foyer.launch_info|.
+
+A `selection` never sits in the command buffer: that opens empty and in Insert
+mode, with the reference shown in its title, and the reference joins below the
+prompt, after a blank line, as it is sent. So the line stays yours to edit and
+to walk history with, and history remembers the prompt without a file position
+that will not be true next time. Starting from Visual mode sets it to
+`current_file:start_line-end_line` from |foyer.launch_info|, e.g.
+`src/main.c:30-36`, or `src/main.c:30` for a single line. Type nothing and
+nothing is sent; a bare range asks the agent nothing.
+
+A sidebar outlives the send that opened it, so sending again aims at the
+window already there rather than splitting another one: a draft still in it is
+yours and stays -- only an empty one takes a seeded `command` -- with the new
+reference replacing whatever the title advertised before, and the terminal
+left in there by the last send gives the window back to a fresh prompt. A
+floating window is transient and is simply opened again.
+
+A terminal still producing output keeps the window instead, see
+|foyer.is_idle()|; there is no prompt for a reference to ride on then, so it
+is dropped and said so via |vim.notify()|.
 
 ==============================================================================
 4. API                                                             *foyer-api*
@@ -188,8 +220,8 @@ its environment naming that file: >console
 
     $ cat "$FOYER_CONTEXT"
     {"captured_at":"2026-09-22T15:59:07+0800","captured_unix":1790063947,
-     "launch_info":{"current_file":"/repo/src/main.c","current_line":88,
-                    "start_line":30,"end_line":36}}
+     "launch_info":{"project_root":"/repo","current_file":"src/main.c",
+                    "current_line":88,"start_line":30,"end_line":36}}
 <
 That is the whole interface -- a file an agent reads when it needs it. What
 remains is telling the agent it is there.
@@ -239,10 +271,17 @@ configurable.
 
 In the command buffer ~
 
+A buffer with something to say already -- a lifted command line, a seeded
+`command`, a prompt that is going to carry a `selection` -- starts in Insert
+mode at the end of its text. One opened with nothing to say starts in Normal
+mode, where <Up> walks history.
+
     <CR>              n    Send the buffer to the terminal
     <C-s>             i    Send the buffer to the terminal
-    <C-p>, <Up>       n i  Previous history entry, filtered by what you typed
-    <C-n>, <Down>     n i  Next history entry
+    <C-p>, <Up>       n    Previous history entry
+    <C-n>, <Down>     n    Next history entry
+    <C-p>             i    Previous history entry
+    <C-n>             i    Next history entry
     <C-x><C-p>        i    Ordinary insert-mode completion
     <C-x><C-n>        i    Ordinary insert-mode completion
     <Esc>             n    Close the window if the buffer is empty
@@ -250,8 +289,12 @@ In the command buffer ~
     <C-x><C-x>        n    Toggle previous size / full screen
 
 History is stored per terminal name in `stdpath('cache')/foyer.json` and
-survives restarts. Typing text before pressing <C-p> filters the history to
-entries containing it, and highlights the match with |hl-FoyerMatch|.
+survives restarts. Typing text before walking the history filters it to
+entries containing that text, and highlights the match with |hl-FoyerMatch|.
+
+|foyer.edit_selection()|'s window is text you are editing rather than a
+prompt: it keeps <CR>, <C-s>, <Esc>, <C-c> and <C-x><C-x>, has no history, and
+always starts in Normal mode.
 
 In the terminal buffer ~
 
@@ -283,9 +326,18 @@ FoyerMatch
 ==============================================================================
 8. LIMITATIONS                                             *foyer-limitations*
 
-- Register a is the transport for selections and pastes: a send from Visual
-  mode yanks into it, and a command buffer seeded from it consumes and clears
-  it. |foyer.edit_selection()| does the same.
+- A send containing a newline -- a multi-line draft, or any prompt with a
+  `selection` reference under it -- is wrapped in bracketed paste, so the
+  receiver inserts the newline instead of reading it as Enter and running the
+  first line on its own. What the receiver then does with a multi-line input
+  is its own business: an agent takes it as one prompt, a shell lands it on
+  one command line and still runs each of its lines in turn. A terminal
+  program that does not understand bracketed paste shows the [200~ escapes as
+  text -- set `bracketed_paste = false` for it, see |foyer-setup|. Single-line
+  sends are never wrapped.
+- |foyer.edit_selection()| goes through register a: the selection is yanked
+  into it on the way in, and the edited text on the way back out. <C-x>i in a
+  terminal pastes register a, whatever put it there.
 - Reading the command line works by sending an erase sequence (CTRL-U, or ESC
   for cmd.exe) and observing where the cursor lands, with short timers to let
   the shell respond. This is heuristic: an unusual prompt or a very slow shell

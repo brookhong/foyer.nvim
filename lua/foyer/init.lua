@@ -1,5 +1,5 @@
 local M = {}
-local config = { commands = {}, root_markers = nil }
+local config = { commands = {}, root_markers = nil, bracketed_paste = true }
 local last_output_time = {}
 
 -- Directory markers locating the project root that scopes terminals.
@@ -26,21 +26,82 @@ local function in_visual()
     return mode == 'v' or mode == 'V' or mode == '\22' -- char, line, block
 end
 
+-- A draft of nothing but whitespace is a draft the user never wrote: it closes
+-- a window, it is not sent, and it is not remembered.
+local function is_blank(s)
+    return not s:find('%S')
+end
+
+local function buffer_text(bufnr)
+    return table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), '\n')
+end
+
+-- {path} stated the way the project talks about it, or nil when it does not sit
+-- under {root} -- then no such name exists and only the absolute one is true.
+local function relative_to(root, path)
+    local prefix = root:gsub('/$', '') .. '/'
+    local head = path:sub(1, #prefix)
+    -- A Windows path can differ in case without differing: the buffer name and
+    -- vim.fs.root() disagree about the drive letter often enough to matter.
+    if jit.os == 'Windows' then
+        head, prefix = head:lower(), prefix:lower()
+    end
+    if head ~= prefix then return nil end
+    return path:sub(#prefix + 1)
+end
+
 -- What the user is looking at, in the conventional launch_info shape.
 local function launch_info()
-    -- A terminal or scratch buffer has no file worth reporting: expand('%:p')
-    -- would hand back a term:// path. The empty table publishes nothing, so the
-    -- last real context stays in place.
-    if vim.bo.buftype ~= '' or vim.fn.expand('%') == '' then return {} end
+    -- A terminal or scratch buffer has no file worth reporting: its name would
+    -- be a term:// URI. The empty table publishes nothing, so the last real
+    -- context stays in place.
+    local name = vim.api.nvim_buf_get_name(0)
+    if vim.bo.buftype ~= '' or name == '' then return {} end
+    -- The buffer name rather than expand('%:p'): that one leaves a symlinked
+    -- path unresolved while vim.fs.root() resolves it, so the two would never
+    -- match. normalize() then settles the separators, which disagree on
+    -- Windows.
+    local path = vim.fs.normalize(name)
+    local root = project_root(nil)
+    root = root and vim.fs.normalize(root)
+    local relative = root and relative_to(root, path)
     local info = {
-        current_file = vim.fn.expand('%:p'),
+        -- The pair travels together or not at all: a root the file cannot be
+        -- named against is a root nobody can resolve the name with.
+        project_root = relative and root or nil,
+        current_file = relative or path,
         current_line = vim.fn.line('.'),
     }
     if in_visual() then
-        info.start_line = vim.fn.line('v')
-        info.end_line = vim.fn.line('.')
+        -- line('v') is the anchor, which sits below the cursor in a selection
+        -- dragged upward; a reversed range is no use to whoever reads it.
+        local anchor, cursor = vim.fn.line('v'), vim.fn.line('.')
+        info.start_line = math.min(anchor, cursor)
+        info.end_line = math.max(anchor, cursor)
     end
     return info
+end
+
+-- The selected range named the way a shell or an agent can resolve it:
+-- `src/main.c:30-36`. Nothing is quoted: the prompt is prose the user is
+-- writing, not a command line being assembled.
+local function selection_ref(info)
+    if not (info.current_file and info.start_line) then return nil end
+    if info.end_line == info.start_line then
+        return ('%s:%d'):format(info.current_file, info.start_line)
+    end
+    return ('%s:%d-%d'):format(info.current_file, info.start_line, info.end_line)
+end
+
+-- What the user typed, with the ref below it after a blank line. The ref joins
+-- here, as the prompt is sent, and never sits in the command buffer: the line
+-- stays the user's to edit and to navigate history with, and history records
+-- the prompt without a file position that will not be true next time. A blank
+-- prompt stays blank, so the send is dropped: a bare line and range asks the
+-- agent nothing.
+local function with_selection(cmd, ref)
+    if not ref or is_blank(cmd) then return cmd end
+    return cmd .. '\n\n' .. ref
 end
 
 local function escape_key(s)
@@ -112,11 +173,12 @@ local function capture(opts)
     if opts.launch_info ~= nil then return end
     opts.launch_info = launch_info()
     if not in_visual() then return end
-    -- Take the selected text only when there will be a prompt to seed with it:
-    -- a fire-and-forget send must not clobber register a.
+    -- A ref is only useful on a prompt that is going to open; a send that asked
+    -- for no window has nowhere to put it.
     if opts.interactive or opts.command == nil or opts.command == '' then
-        vim.cmd('normal! "ay')
-        opts.selection = opts.selection or '@'
+        opts.selection = opts.selection or selection_ref(opts.launch_info)
+        -- The window opened next is no place to still be in Visual mode.
+        vim.cmd('normal! \27')
     end
 end
 
@@ -124,7 +186,6 @@ end
 local cache_file = vim.fn.stdpath('cache') .. '/foyer.json'
 local history = {}
 local current_term = nil
-local idx = 0
 
 local function load_history()
     local file = io.open(cache_file, 'r')
@@ -152,7 +213,7 @@ local function get_term_name(bufnr)
 end
 
 local function log_command(cmd, term_bufnr)
-    if cmd == "" then return end
+    if is_blank(cmd) then return end
 
     local term_name = get_term_name(term_bufnr)
     if not history[term_name] then history[term_name] = {} end
@@ -189,11 +250,23 @@ end
 set_default_hl()
 vim.api.nvim_create_autocmd('ColorScheme', { group = hl_group, callback = set_default_hl })
 
+-- Text the receiver must take literally rather than act on. A bare newline in
+-- the middle of a command reads as Enter to a shell, which would run the first
+-- line on its own; bracketed paste says "this is pasted input" and gets the
+-- newline inserted instead. Only a multi-line send is wrapped: a single-line
+-- command never needed the protection. A receiver that does not understand the
+-- escapes shows them as text, which is what `bracketed_paste = false` is for.
+local function as_paste(cmd)
+    if not config.bracketed_paste then return cmd end
+    if not cmd:find('\n', 1, true) then return cmd end
+    return '\x1b[200~' .. cmd .. '\x1b[201~'
+end
+
 local function send_command(term_bufnr, cmd, prefix, suffix, stopinsert)
     vim.cmd('startinsert')
     vim.defer_fn(function()
         vim.fn.chansend(vim.b[term_bufnr].terminal_job_id, prefix)
-        vim.fn.chansend(vim.b[term_bufnr].terminal_job_id, cmd .. suffix)
+        vim.fn.chansend(vim.b[term_bufnr].terminal_job_id, as_paste(cmd) .. suffix)
         if stopinsert then
             vim.cmd('stopinsert')
         end
@@ -414,28 +487,25 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
     end, 200)
 end
 
-local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
-    if #lines == 1 and lines[1] == "@" then
-        if vim.fn.getreg('a') ~= '' then
-            vim.cmd('normal! ggVG"ap')
-            vim.fn.setreg('a', '')
-        end
+-- The frame names what the window is showing: a float wears it on its border,
+-- a split in its winbar. A float's title has to be set with its position --
+-- nvim_win_get_config() reports no position while there is no title.
+local function set_window_title(win_id, title)
+    local cfg = vim.api.nvim_win_get_config(win_id)
+    if cfg.relative ~= '' then
+        cfg.title = ' ' .. title .. ' '
+        cfg.title_pos = 'center'
+        vim.api.nvim_win_set_config(win_id, cfg)
     else
-        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+        vim.wo[win_id].winbar = ' ' .. title .. ' '
     end
+end
+
+local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
     vim.keymap.set('n', '<Esc>', function()
-        local new_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        local has_content = false
-
-        for _, line in ipairs(new_lines) do
-            if line:match('%S') then
-                has_content = true
-                break
-            end
-        end
-
-        if not has_content then
+        if is_blank(buffer_text(bufnr)) then
             vim.api.nvim_win_close(win_id, true)
             vim.api.nvim_buf_delete(bufnr, { force = true })
         end
@@ -451,39 +521,34 @@ local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
     create_keymap_x(bufnr, '<C-x><C-x>')
 end
 
-local function init_command_buf(bufnr, win_id, lines, on_command_input)
-    init_command_buf_shared(bufnr, win_id, lines, function()
-        local cmd = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
-        log_command(cmd, current_term)
-        local new_buf = on_command_input(cmd)
-        if new_buf then
-            vim.api.nvim_set_current_buf(new_buf)
-            vim.cmd('normal! G')
-            init_term_buf(new_buf, win_id, bufnr)
-        else
-            vim.api.nvim_win_close(win_id, true)
-            vim.api.nvim_buf_delete(bufnr, { force = true })
-        end
-    end)
+-- Pick up where the user left off: the end of the last line, with startinsert!
+-- supplying the column.
+local function insert_at_end(bufnr, win_id)
+    vim.api.nvim_win_set_cursor(win_id, { vim.api.nvim_buf_line_count(bufnr), 0 })
+    vim.cmd('startinsert!')
+end
 
+-- History navigation for one command buffer. Re-attachable, and must be
+-- re-attached by anyone handing an existing buffer to a new send: the list is
+-- read once, here, so a prompt that outlived its send would otherwise go on
+-- walking the history as it stood when its window opened.
+local function attach_history(bufnr)
     set_default_hl()
 
     -- A copy of this terminal's history, so filtering never mutates the stored
     -- list, with the draft appended as the last entry: navigation walks back to
     -- it, and typing updates it in place.
-    local term_name = get_term_name(current_term)
-    local entries = history[term_name] or {}
+    local entries = history[get_term_name(current_term)] or {}
     local working_entries = {}
     for _, entry in ipairs(entries) do
         table.insert(working_entries, entry)
     end
-    local current_input = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)[1] or ""
-    table.insert(working_entries, {cmd = current_input, time = os.time()})
+    table.insert(working_entries, {cmd = buffer_text(bufnr), time = os.time()})
     local filtered_entries = working_entries
-    idx = #filtered_entries - 1
+    local idx = #filtered_entries - 1
 
     local function navigate_history(delta)
-        local user_input = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+        local user_input = buffer_text(bufnr)
         if idx == #filtered_entries - 1 or filtered_entries[idx + 1].cmd ~= user_input then
             working_entries[#working_entries].cmd = user_input
 
@@ -523,36 +588,81 @@ local function init_command_buf(bufnr, win_id, lines, on_command_input)
     vim.keymap.set('i', '<C-x><C-n>', '<C-n>', {silent = true, buffer = bufnr})
 end
 
+local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
+    opts = opts or {}
+    init_command_buf_shared(bufnr, win_id, lines, function()
+        local cmd = buffer_text(bufnr)
+        log_command(cmd, current_term)
+        local new_buf = on_command_input(cmd)
+        if new_buf then
+            vim.api.nvim_set_current_buf(new_buf)
+            vim.cmd('normal! G')
+            -- The prompt has left this window; the frame should stop
+            -- advertising it and name the terminal now sitting there.
+            set_window_title(win_id, get_term_name(new_buf))
+            init_term_buf(new_buf, win_id, bufnr)
+        else
+            vim.api.nvim_win_close(win_id, true)
+            vim.api.nvim_buf_delete(bufnr, { force = true })
+        end
+    end)
+
+    -- A buffer with something to say already -- a lifted command line, a seeded
+    -- command, a prompt that is going to carry a selection -- means the writing
+    -- has started. One with nothing to say stays in Normal mode, where <Up>
+    -- walks history.
+    if opts.start_insert then
+        insert_at_end(bufnr, win_id)
+    end
+
+    attach_history(bufnr)
+end
+
 local active_cmd_wins = {}
 
+-- A scratch buffer that inherits the source buffer's indent settings, so text
+-- edited here keeps the shape it had over there.
+local function new_cmd_buf()
+    local src = vim.api.nvim_get_current_buf()
+    local bufnr = vim.api.nvim_create_buf(false, true)
+    vim.bo[bufnr].modifiable = true
+    for _, opt in ipairs({ 'expandtab', 'tabstop', 'shiftwidth', 'softtabstop' }) do
+        vim.bo[bufnr][opt] = vim.bo[src][opt]
+    end
+    return bufnr
+end
+
+-- {on_ready} is called with reused = true when the window already held a
+-- command buffer, so a caller can re-point that draft at what this send
+-- carries instead of silently handing back the state of the send before it.
 local function create_window(type, title, on_ready, opts)
     opts = opts or {}
     -- A sidebar is a persistent split, so reopening it would stack another one;
     -- a float is transient and may simply be opened again.
-    if type == "sidebar" then
-        local win = active_cmd_wins[current_term]
-        if win and vim.api.nvim_win_is_valid(win) then
-            vim.api.nvim_set_current_win(win)
-            return
+    local reuse = type == "sidebar" and active_cmd_wins[current_term] or nil
+    if reuse and not vim.api.nvim_win_is_valid(reuse) then reuse = nil end
+
+    if reuse and vim.bo[vim.api.nvim_win_get_buf(reuse)].buftype ~= 'terminal' then
+        vim.api.nvim_set_current_win(reuse)
+        if on_ready then
+            on_ready(vim.api.nvim_win_get_buf(reuse), reuse, true)
         end
+        return
     end
 
-    -- The scratch buffer inherits the source buffer's indent settings, so text
-    -- edited here keeps the shape it had over there.
-    local current_bufnr = vim.api.nvim_get_current_buf()
-    local expandtab = vim.bo[current_bufnr].expandtab
-    local tabstop = vim.bo[current_bufnr].tabstop
-    local shiftwidth = vim.bo[current_bufnr].shiftwidth
-    local softtabstop = vim.bo[current_bufnr].softtabstop
-
-    local bufnr = vim.api.nvim_create_buf(false, true)
+    local bufnr = new_cmd_buf()
     local win_id
 
-    if type == "sidebar" then
+    if reuse then
+        -- The last send left the terminal in this window, and a prompt is what
+        -- was asked for, so put a fresh one in front of it.
+        win_id = reuse
+        vim.api.nvim_set_current_win(win_id)
+        vim.api.nvim_win_set_buf(win_id, bufnr)
+    elseif type == "sidebar" then
         win_id = vim.api.nvim_open_win(bufnr, true, {
             split = 'right',
         })
-        vim.wo[win_id].winbar = ' ' .. title .. ' '
     else
         local width = vim.o.columns - 32
         local col = math.floor((vim.o.columns - width) / 2)
@@ -565,8 +675,6 @@ local function create_window(type, title, on_ready, opts)
             col = col,
             row = row,
             border = 'rounded',
-            title = ' ' .. title .. ' ',
-            title_pos = 'center',
             footer = { { " Press <Ctrl-c> or <Esc> to close this window ", "FloatFooter" } },
             footer_pos = "right",
         }, opts)
@@ -574,20 +682,17 @@ local function create_window(type, title, on_ready, opts)
         win_id = vim.api.nvim_open_win(bufnr, true, opts)
     end
 
-    vim.bo[bufnr].modifiable = true
+    set_window_title(win_id, title)
     vim.wo[win_id].relativenumber = true
     vim.wo[win_id].cursorline = true
-
-    vim.bo[bufnr].expandtab = expandtab
-    vim.bo[bufnr].tabstop = tabstop
-    vim.bo[bufnr].shiftwidth = shiftwidth
-    vim.bo[bufnr].softtabstop = softtabstop
 
     if on_ready then
         on_ready(bufnr, win_id)
     end
 
-    if current_term ~= nil then
+    -- Only a sidebar is tracked: it is the one that gets reused, and a float
+    -- left open must not be mistaken for it.
+    if not reuse and type == "sidebar" and current_term ~= nil then
         active_cmd_wins[current_term] = win_id
         local term_key = current_term
         vim.api.nvim_create_autocmd('WinClosed', {
@@ -667,10 +772,11 @@ function M.edit_input()
         current_term = term_bufnr
 
         create_window('floating', 'Edit Terminal Command', function(bufnr, win_id)
-            local lines = vim.split(input or "", '\n', {plain = true})
+            local text = input or ""
+            local lines = vim.split(text, '\n', {plain = true})
             init_command_buf(bufnr, win_id, lines, function(cmd)
                 send_command(term_bufnr, cmd, get_osc_commands(current_term)[1], "", false)
-            end)
+            end, { start_insert = text ~= "" })
         end)
     end)
 end
@@ -752,19 +858,51 @@ function M.send_terminal_command(term_key, opts)
 
         local term = resolve_command(term_key, root, opts.launch_info)
         term = type(term) == "table" and term[1] or term
-        create_window(opts.win_type, 'Ctrl-s to send command to 『' .. term .. ' 』', function(bufnr, win_id)
+        local title = 'Ctrl-s to send command to 『' .. term .. ' 』'
+        -- The ref never appears in the buffer, so the frame is the only place
+        -- the user can see what the send is going to carry.
+        if opts.selection then title = title .. ' + ' .. opts.selection end
+        create_window(opts.win_type, title, function(bufnr, win_id, reused)
+            -- A sidebar prompt outlives the send that opened it, so this send's
+            -- ref, seed and history have to reach the buffer rather than the
+            -- closure that set the window up.
+            if reused then
+                vim.b[bufnr].foyer_selection = opts.selection
+                set_window_title(win_id, title)
+                -- A draft in there is the user's and stays. An empty buffer has
+                -- nothing to lose, so a seeded command still gets its chance
+                -- rather than going missing without a word.
+                if is_blank(buffer_text(bufnr)) and not is_blank(command or "") then
+                    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(command, '\n', { plain = true }))
+                end
+                attach_history(bufnr)
+                if opts.selection or not is_blank(buffer_text(bufnr)) then
+                    insert_at_end(bufnr, win_id)
+                end
+                return
+            end
             if not M.is_idle(target_buf, 2000) then
+                -- Mid-output, the terminal takes the window instead of a
+                -- prompt, and a ref with no prompt to ride on goes nowhere.
+                -- Say so, and let the frame name what is actually in there.
+                if opts.selection then
+                    vim.notify('Terminal busy, ' .. opts.selection .. ' not sent', vim.log.levels.WARN)
+                end
+                set_window_title(win_id, term)
                 vim.api.nvim_set_current_buf(target_buf)
                 init_term_buf(target_buf, win_id, bufnr)
                 return
             end
-            init_command_buf(bufnr, win_id, { opts.selection or "" }, function(cmd)
+            vim.b[bufnr].foyer_selection = opts.selection
+            local seed = vim.split(command or "", '\n', { plain = true })
+            init_command_buf(bufnr, win_id, seed, function(cmd)
                 vim.fn.clearmatches()
-                if cmd ~= "" then
+                cmd = with_selection(cmd, vim.b[bufnr].foyer_selection)
+                if not is_blank(cmd) then
                     send_command(target_buf, cmd, OSC_commands[2], "\r", true)
                 end
                 return target_buf
-            end)
+            end, { start_insert = opts.selection ~= nil or not is_blank(command or "") })
         end)
     else
         if vim.b[target_buf] and vim.b[target_buf].terminal_job_id then
@@ -855,10 +993,15 @@ function M.edit_selection()
     local filetype = vim.bo[0].filetype
     local width = vim.o.columns - 32
     local adata = vim.fn.getreg('a')
-    local height = math.min(math.max(#vim.split(adata, '\n'), math.ceil(#adata / width) + 2), vim.o.lines - 4)
+    -- A linewise yank ends in a newline, which would seed a blank last line.
+    -- Only linewise: a charwise selection that happens to end at a line break
+    -- really does include that empty line.
+    if mode == 'V' then adata = adata:gsub('\n$', '') end
+    local lines = vim.split(adata, '\n', { plain = true })
+    local height = math.min(math.max(#lines, math.ceil(#adata / width) + 2), vim.o.lines - 4)
     create_window('floating', 'Edit selection', function(bufnr, win_id)
         vim.bo[bufnr].filetype = filetype
-        init_command_buf_shared(bufnr, win_id, { "@" }, function()
+        init_command_buf_shared(bufnr, win_id, lines, function()
             vim.cmd('normal! gg0' .. mode .. 'G$"ay')
             vim.api.nvim_win_close(win_id, true)
             vim.api.nvim_buf_delete(bufnr, { force = true })
