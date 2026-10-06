@@ -64,6 +64,35 @@ bracketed_paste ~
     |foyer-limitations|. Turn it off for a terminal program that does not
     understand the escapes. Defaults to `true`.
 
+                                                           *foyer.send_prefix*
+send_prefix ~
+    Keys that clear the receiver's input line and its screen, keyed by the
+    program receiving them. Before the text, foyer clears whatever the
+    receiver has on its input line, and clears the screen with it: CTRL-U then
+    CTRL-L, or `{ ESC, '' }` for cmd.exe. Those are a shell's bindings, and a
+    program with a UI of its own is free to bind them to anything -- `pi`
+    erases the line on CTRL-U as a shell does, but opens its model picker on
+    CTRL-L, which then swallows the prompt arriving behind it. So name the
+    keys the program does understand, and `''` for the rest: >lua
+        send_prefix = {
+            -- { clear input, clear screen }
+            pi = { vim.keycode('<C-u>'), '' },
+            claude = { '', '' },
+        }
+<
+    A send is prefixed with both, the input key first. The input key alone is
+    also what |foyer.edit_input()| sends to find the command line, so a
+    program given `''` there leaves it nothing to read -- reading back a
+    prompt is a shell feature either way.
+
+    The key names the program, not the `commands` key that selected it: one
+    such key stands for whatever a project wants behind it, so `a` is free to
+    be a different agent in every repo. The whole command line as spawned, the
+    program alone and its basename are all tried, so `pi --yolo`,
+    `/opt/pi/bin/pi` and `pi` are all usable keys -- the basename covers every
+    path and argument spelling at once. A program with no key of its own keeps
+    the defaults.
+
 Example: >lua
     require('foyer').setup({
         commands = {
@@ -338,10 +367,10 @@ FoyerMatch
 - |foyer.edit_selection()| goes through register a: the selection is yanked
   into it on the way in, and the edited text on the way back out. <C-x>i in a
   terminal pastes register a, whatever put it there.
-- Reading the command line works by sending an erase sequence (CTRL-U, or ESC
-  for cmd.exe) and observing where the cursor lands, with short timers to let
-  the shell respond. This is heuristic: an unusual prompt or a very slow shell
-  can confuse it.
+- Reading the command line works by sending the erase sequence (CTRL-U, or ESC
+  for cmd.exe, or whatever |foyer.send_prefix| names) and observing where the
+  cursor lands, with short timers to let the shell respond. This is heuristic:
+  an unusual prompt or a very slow shell can confuse it.
 - Timings, mappings, and the register are hardcoded.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

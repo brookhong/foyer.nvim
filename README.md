@@ -82,8 +82,45 @@ require('foyer').setup({
     -- Wrap a multi-line send in bracketed paste. Turn it off for a terminal
     -- program that does not understand the escapes. Defaults to true.
     bracketed_paste = true,
+
+    -- Keys that clear the receiver's input line and its screen, keyed by the
+    -- program receiving them. Defaults to { Ctrl-U, Ctrl-L }. A program that
+    -- binds either key to something of its own needs its own -- see below.
+    send_prefix = {
+        pi = { vim.keycode('<C-u>'), '' },
+    },
 })
 ```
+
+### `send_prefix`
+
+Before the text, foyer clears whatever the receiver already has on its input
+line, and clears the screen with it: `Ctrl-U` then `Ctrl-L`, or `{ ESC, '' }`
+for `cmd.exe`. Those are a shell's bindings, and a program with its own UI is
+free to bind them to anything — `pi` erases the line on `Ctrl-U` as a shell
+does, but opens its model picker on `Ctrl-L`, which then swallows the prompt
+arriving behind it. So name the keys the program does understand, and `''` for
+the rest:
+
+```lua
+send_prefix = {
+    -- { clear input, clear screen }
+    pi = { vim.keycode('<C-u>'), '' },
+    claude = { '', '' },
+}
+```
+
+A send is prefixed with both, the input key first. The input key alone is also
+what `edit_input()` sends to find the command line, so a program given `''`
+there leaves it nothing to read — reading back a prompt is a shell feature
+either way.
+
+The key names the **program**, not the `commands` key that selected it: one
+such key stands for whatever a project wants behind it, so `a` is free to be a
+different agent in every repo. The whole command line as spawned, the program
+alone and its basename are all tried, so `pi --yolo`, `/opt/pi/bin/pi` and `pi`
+are all usable keys — the basename covers every path and argument spelling at
+once. A program with no key of its own keeps the defaults.
 
 ### `launch_info`
 
@@ -326,10 +363,11 @@ your colorscheme.
 - `edit_selection()` goes through register `a`: the selection is yanked into it
   on the way in, and the edited text on the way back out. `<C-x>i` in a terminal
   pastes register `a`, whatever put it there.
-- The plugin reads the command line by sending an erase sequence (`Ctrl-U`, or
-  `ESC` for `cmd.exe`) and watching where the cursor lands, with short timers to
-  let the shell respond. This is inherently heuristic: a shell with an unusual
-  prompt or a very slow response can confuse it.
+- The plugin reads the command line by sending the erase sequence (`Ctrl-U`, or
+  `ESC` for `cmd.exe`, or whatever `send_prefix` names) and watching where the
+  cursor lands, with short timers to let the shell respond. This is inherently
+  heuristic: a shell with an unusual prompt or a very slow response can confuse
+  it.
 - Timings, keymaps, and the register are hardcoded.
 
 ## License

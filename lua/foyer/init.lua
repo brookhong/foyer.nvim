@@ -1,5 +1,5 @@
 local M = {}
-local config = { commands = {}, root_markers = nil, bracketed_paste = true }
+local config = { commands = {}, root_markers = nil, bracketed_paste = true, send_prefix = {} }
 local last_output_time = {}
 
 -- Directory markers locating the project root that scopes terminals.
@@ -273,16 +273,47 @@ local function send_command(term_bufnr, cmd, prefix, suffix, stopinsert)
     end, 100)
 end
 
-local function get_osc_commands(term_bufnr)
-    if jit.os == "Windows" then
-        if vim.api.nvim_buf_get_name(term_bufnr):match("cmd") then
-            -- \x1b -- ESC
-            return { "\x1b", "\x1b" }
-        end
+-- The command line a terminal was spawned with, which its buffer name records
+-- as `term://<cwd>//<pid>:<command>`.
+local function term_command(term_bufnr)
+    return vim.api.nvim_buf_get_name(term_bufnr):match('^term://.-//%d+:(.*)$')
+end
+
+-- The keys a terminal is driven with, `{ clear_input, clear_screen }`: Ctrl-U
+-- erases the input line, Ctrl-L wipes the screen. cmd.exe erases with ESC and
+-- has nothing for the screen.
+local function default_prefix(term_bufnr)
+    if jit.os == "Windows" and vim.api.nvim_buf_get_name(term_bufnr):match("cmd") then
+        return { "\x1b", "" }
     end
-    -- \x15 -- Ctrl-u
-    -- \x0c -- Ctrl-l
-    return { "\x15", "\x15\x0c" }
+    return { "\x15", "\x0c" }
+end
+
+-- The pair the user named for this program, if any.
+--
+-- Keyed by the program, not by the `commands` key that selected it: one key
+-- stands for whatever that project wants behind it, so `a` is one agent here
+-- and another there. The whole command line, the program alone and its
+-- basename are all tried, so a program can be named however you think of it.
+local function configured_prefix(term_bufnr)
+    local cmd = term_command(term_bufnr)
+    if not cmd then return nil end
+    local program = cmd:match('^%S+')
+    return config.send_prefix[cmd]
+        or program and (config.send_prefix[program]
+            or config.send_prefix[program:match('[^/\\]+$')])
+end
+
+-- [1] clears the input line, which is also how the command line is read back;
+-- [2] clears the screen as well, which is what a send is prefixed with. Both
+-- are a shell's bindings, and a program with a UI of its own is free to bind
+-- them to anything -- an agent that opens a menu on Ctrl-L swallows the prompt
+-- arriving behind it, while erasing the line on Ctrl-U as any shell does -- so
+-- a program may name the keys it understands, and `''` the ones it does not.
+local function get_osc_commands(term_bufnr)
+    local prefix = configured_prefix(term_bufnr) or default_prefix(term_bufnr)
+    local clear_input = prefix[1] or ''
+    return { clear_input, clear_input .. (prefix[2] or '') }
 end
 
 -- Toggle the current window between full screen and the size it had before:
