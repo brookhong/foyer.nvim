@@ -912,6 +912,17 @@ function M.send_terminal_command(term_key, opts)
                 end
                 return
             end
+            local function init_prompt(start_insert)
+                local seed = vim.split(command or "", '\n', { plain = true })
+                init_command_buf(bufnr, win_id, seed, function(cmd)
+                    vim.fn.clearmatches()
+                    cmd = with_selection(cmd, vim.b[bufnr].foyer_selection)
+                    if not is_blank(cmd) then
+                        send_command(target_buf, cmd, OSC_commands[2], "\r", true)
+                    end
+                    return target_buf
+                end, { start_insert = start_insert })
+            end
             if not M.is_idle(target_buf, 2000) then
                 -- Mid-output, the terminal takes the window instead of a
                 -- prompt, and a ref with no prompt to ride on goes nowhere.
@@ -919,21 +930,18 @@ function M.send_terminal_command(term_key, opts)
                 if opts.selection then
                     vim.notify('Terminal busy, ' .. opts.selection .. ' not sent', vim.log.levels.WARN)
                 end
+                -- The prompt is still the terminal's alternate buffer, which
+                -- <C-o> rewinds to, so it must work once the user gets there.
+                -- It is set up in Normal mode: insert would land in the
+                -- terminal that is about to take the window.
+                init_prompt(false)
                 set_window_title(win_id, term)
                 vim.api.nvim_set_current_buf(target_buf)
                 init_term_buf(target_buf, win_id, bufnr)
                 return
             end
             vim.b[bufnr].foyer_selection = opts.selection
-            local seed = vim.split(command or "", '\n', { plain = true })
-            init_command_buf(bufnr, win_id, seed, function(cmd)
-                vim.fn.clearmatches()
-                cmd = with_selection(cmd, vim.b[bufnr].foyer_selection)
-                if not is_blank(cmd) then
-                    send_command(target_buf, cmd, OSC_commands[2], "\r", true)
-                end
-                return target_buf
-            end, { start_insert = opts.selection ~= nil or not is_blank(command or "") })
+            init_prompt(opts.selection ~= nil or not is_blank(command or ""))
         end)
     else
         if vim.b[target_buf] and vim.b[target_buf].terminal_job_id then
