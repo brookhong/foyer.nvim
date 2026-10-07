@@ -246,6 +246,8 @@ local function set_default_hl()
         bold = true,
         default = true,
     })
+    -- The veil over the editor while the terminal picker is up.
+    vim.api.nvim_set_hl(0, 'FoyerBackdrop', { bg = '#000000', default = true })
 end
 set_default_hl()
 vim.api.nvim_create_autocmd('ColorScheme', { group = hl_group, callback = set_default_hl })
@@ -952,6 +954,107 @@ function M.send_terminal_command(term_key, opts)
     end
 end
 
+-- Show the configured terminals in a popup and wait for the key of one, or nil
+-- once the user backs out. A key that names no terminal is ignored rather than
+-- taken as a cancel: the choices are on screen, so it is a slip of the finger.
+local function pick_terminal(root, launch_info, running)
+    local keys = vim.tbl_keys(config.commands)
+    if #keys == 0 then
+        vim.notify('foyer.nvim: no terminals configured in `commands`', vim.log.levels.WARN)
+        return nil
+    end
+    table.sort(keys)
+
+    local lines = {}
+    for _, key in ipairs(keys) do
+        local term = resolve_command(key, root, launch_info)
+        term = type(term) == 'table' and term[1] or term
+        -- A running terminal is reused rather than spawned, which is worth
+        -- knowing before picking it.
+        local mark = running[key] and ' ●' or ''
+        table.insert(lines, (' %s  %s%s '):format(key, tostring(term), mark))
+    end
+
+    local width = 0
+    for _, line in ipairs(lines) do
+        width = math.max(width, vim.fn.strdisplaywidth(line))
+    end
+    local footer = ' <Esc> to cancel '
+    width = math.max(width, #footer)
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    local ns = vim.api.nvim_create_namespace('foyer_pick')
+    for i = 1, #lines do
+        vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 1, { end_col = 2, hl_group = 'Special' })
+    end
+    vim.bo[buf].modifiable = false
+
+    -- Dim the editor behind the picker, so the choice is the one thing that
+    -- reads. Blending needs 'termguicolors': without it the veil would be
+    -- opaque and hide the editor outright, so it is left out instead.
+    local backdrop_buf, backdrop_win
+    if vim.o.termguicolors then
+        backdrop_buf = vim.api.nvim_create_buf(false, true)
+        backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
+            relative = 'editor',
+            row = 0,
+            col = 0,
+            width = vim.o.columns,
+            -- The command line stays clear: messages land there.
+            height = math.max(1, vim.o.lines - vim.o.cmdheight),
+            style = 'minimal',
+            focusable = false,
+            noautocmd = true,
+            zindex = 49,
+        })
+        vim.wo[backdrop_win].winhighlight = 'Normal:FoyerBackdrop'
+        vim.wo[backdrop_win].winblend = 40
+    end
+
+    local height = math.min(#lines, vim.o.lines - 4)
+    local win = vim.api.nvim_open_win(buf, false, {
+        relative = 'editor',
+        width = width,
+        height = height,
+        row = math.floor((vim.o.lines - height) / 2) - 1,
+        col = math.floor((vim.o.columns - width) / 2),
+        style = 'minimal',
+        border = 'rounded',
+        title = ' Terminal ',
+        title_pos = 'center',
+        footer = footer,
+        footer_pos = 'right',
+        focusable = false,
+        noautocmd = true,
+        zindex = 50,
+    })
+
+    local picked
+    while true do
+        -- getchar() blocks before the screen catches up with the new float.
+        vim.cmd('redraw')
+        -- <C-c> can arrive as an interrupt rather than a key.
+        local ok, char = pcall(vim.fn.getchar)
+        if not ok or char == 27 or char == 3 then break end
+        if type(char) == 'number' then
+            local key = vim.fn.nr2char(char)
+            if config.commands[key] then
+                picked = key
+                break
+            end
+        end
+    end
+
+    vim.api.nvim_win_close(win, true)
+    vim.api.nvim_buf_delete(buf, { force = true })
+    if backdrop_win then
+        vim.api.nvim_win_close(backdrop_win, true)
+        vim.api.nvim_buf_delete(backdrop_buf, { force = true })
+    end
+    return picked
+end
+
 function M.terminal_command(opts)
     opts = opts or {}
     capture(opts)
@@ -964,29 +1067,14 @@ function M.terminal_command(opts)
         end
     end
 
-    local function notify_available_terminals(header)
-        local display = header
-        for key, _ in pairs(config.commands) do
-            local term = resolve_command(key, root, opts.launch_info)
-            term = type(term) == "table" and term[1] or term
-            display = display .. key .. "(" .. term .. ") "
-        end
-        vim.notify(display, vim.log.levels.INFO)
-    end
-
-    local char = vim.fn.getchar()
-    local term_key = vim.fn.nr2char(char)
+    local term_key = pick_terminal(root, opts.launch_info, project_term_bufs)
+    if not term_key then return end
 
     if term_bufs[root] == nil then
         term_bufs[root] = {}
     end
     if term_bufs[root][term_key] == nil then
-        if config.commands[term_key] then
-            open_term(root, term_key, opts.launch_info)
-        else
-            notify_available_terminals("No terminal with primary key '" .. term_key .. "', available terminals: ")
-            return
-        end
+        open_term(root, term_key, opts.launch_info)
     end
 
     M.send_terminal_command(term_key, opts)

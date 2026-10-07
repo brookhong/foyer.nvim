@@ -163,10 +163,10 @@ is dropped and said so via |vim.notify()|.
 
                                                     *foyer.terminal_command()*
 terminal_command({opts})
-    Read one character, resolve it against `commands`, spawn that terminal if
-    it is not running for the current project root, then open a command buffer
-    for it. An unknown character lists the available terminals via
-    |vim.notify()|.
+    Show the `commands` keys in a popup and wait for one, spawn that terminal
+    if it is not running for the current project root (running ones are
+    marked `●`), then open a command buffer for it. <Esc> or CTRL-C cancels;
+    a key that names no terminal is ignored.
 
                                                *foyer.send_terminal_command()*
 send_terminal_command({term_key}, {opts})
@@ -351,6 +351,12 @@ FoyerMatch
     The filter text matched inside the history palette. Defaults to
     `bg=#333333 fg=#ff7700 bold`, declared with `default = true` so your
     colorscheme or an explicit |nvim_set_hl()| wins.
+
+                                                            *hl-FoyerBackdrop*
+FoyerBackdrop
+    The veil dimming the editor while the |foyer.terminal_command()| picker
+    is up, blended in at 'winblend' 40. Defaults to `bg=#000000`. Only drawn
+    with 'termguicolors' set, since without it the veil cannot blend.
 
 ==============================================================================
 8. LIMITATIONS                                             *foyer-limitations*

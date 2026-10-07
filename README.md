@@ -164,7 +164,7 @@ local foyer = require('foyer')
 -- the agent.
 vim.keymap.set({ 'n', 'v' }, '<leader>a', function()
     foyer.terminal_command({ win_type = 'sidebar' })
-end, { desc = 'Send command to terminal by first char' })
+end, { desc = 'Send command to a picked terminal' })
 
 -- Edit the half-typed command line of the terminal you are in.
 vim.api.nvim_create_autocmd('TermOpen', {
@@ -187,7 +187,7 @@ end, { desc = 'Edit selection in floating window' })
 | Function | Description |
 | --- | --- |
 | `setup(opts)` | Merge `opts` into the configuration. |
-| `terminal_command(opts)` | Read one character, resolve it against `commands`, spawn the terminal if needed, then open a command buffer for it. |
+| `terminal_command(opts)` | Pick a terminal from a popup of the `commands` keys (`<Esc>` cancels), spawn it if needed, then open a command buffer for it. |
 | `send_terminal_command(term_key, opts)` | Drive a specific terminal directly. `opts.command` sends non-interactively; omit it to open the command buffer. `opts.auto_start = true` spawns the terminal if it is missing. |
 | `edit_input()` | Lift the terminal's current command line into a floating buffer. Must be called from a terminal buffer. |
 | `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |
@@ -346,6 +346,7 @@ wanted to copy.
 | Group | Default | Used for |
 | --- | --- | --- |
 | `FoyerMatch` | `bg=#333333 fg=#ff7700 bold` | The filter text matched in the history palette |
+| `FoyerBackdrop` | `bg=#000000` | The veil dimming the editor behind the terminal picker (needs `termguicolors`) |
 
 Defined with `default = true`, so override it with `vim.api.nvim_set_hl` or from
 your colorscheme.
