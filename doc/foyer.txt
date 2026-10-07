@@ -64,6 +64,12 @@ bracketed_paste ~
     |foyer-limitations|. Turn it off for a terminal program that does not
     understand the escapes. Defaults to `true`.
 
+picker_delay ~
+    Milliseconds |foyer.terminal_command()| waits for a terminal key before
+    showing its picker. A key typed within it is taken with nothing drawn, so
+    a mapping run straight through to the key does not flash the popup.
+    Defaults to `500`.
+
                                                            *foyer.send_prefix*
 send_prefix ~
     Keys that clear the receiver's input line and its screen, keyed by the
@@ -163,10 +169,11 @@ is dropped and said so via |vim.notify()|.
 
                                                     *foyer.terminal_command()*
 terminal_command({opts})
-    Show the `commands` keys in a popup and wait for one, spawn that terminal
-    if it is not running for the current project root (running ones are
-    marked `●`), then open a command buffer for it. <Esc> or CTRL-C cancels;
-    a key that names no terminal is ignored.
+    Wait for a `commands` key, spawn that terminal if it is not running for
+    the current project root, then open a command buffer for it. With no key
+    typed within `picker_delay`, a popup lists the keys, marking running
+    terminals `●`. <Esc> or CTRL-C cancels; a key that names no terminal is
+    ignored, and one typed before the popup showed brings it up.
 
                                                *foyer.send_terminal_command()*
 send_terminal_command({term_key}, {opts})

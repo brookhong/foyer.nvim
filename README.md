@@ -83,6 +83,11 @@ require('foyer').setup({
     -- program that does not understand the escapes. Defaults to true.
     bracketed_paste = true,
 
+    -- Milliseconds terminal_command() waits for a terminal key before showing
+    -- the picker, so a mapping typed straight through never flashes it.
+    -- Defaults to 500.
+    picker_delay = 500,
+
     -- Keys that clear the receiver's input line and its screen, keyed by the
     -- program receiving them. Defaults to { Ctrl-U, Ctrl-L }. A program that
     -- binds either key to something of its own needs its own -- see below.
@@ -187,7 +192,7 @@ end, { desc = 'Edit selection in floating window' })
 | Function | Description |
 | --- | --- |
 | `setup(opts)` | Merge `opts` into the configuration. |
-| `terminal_command(opts)` | Pick a terminal from a popup of the `commands` keys (`<Esc>` cancels), spawn it if needed, then open a command buffer for it. |
+| `terminal_command(opts)` | Pick a terminal by its `commands` key, spawn it if needed, then open a command buffer for it. A popup lists the keys if none is typed within `picker_delay`; `<Esc>` cancels. |
 | `send_terminal_command(term_key, opts)` | Drive a specific terminal directly. `opts.command` sends non-interactively; omit it to open the command buffer. `opts.auto_start = true` spawns the terminal if it is missing. |
 | `edit_input()` | Lift the terminal's current command line into a floating buffer. Must be called from a terminal buffer. |
 | `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |

@@ -1,5 +1,5 @@
 local M = {}
-local config = { commands = {}, root_markers = nil, bracketed_paste = true, send_prefix = {} }
+local config = { commands = {}, root_markers = nil, bracketed_paste = true, send_prefix = {}, picker_delay = 500 }
 local last_output_time = {}
 
 -- Directory markers locating the project root that scopes terminals.
@@ -954,15 +954,47 @@ function M.send_terminal_command(term_key, opts)
     end
 end
 
+-- What a key read for the picker means: the terminal key it names, false for
+-- a request to back out, nil for a key that names nothing. <C-c> can arrive as
+-- an interrupt rather than a key, which is what {ok} false is.
+local function picked_key(ok, char)
+    if not ok or char == 27 or char == 3 then return false end
+    if type(char) ~= 'number' then return nil end
+    local key = vim.fn.nr2char(char)
+    return config.commands[key] and key or nil
+end
+
+-- Wait up to {ms} for a key without drawing anything: true once one is
+-- waiting, false on timeout, nil on <C-c>.
+local function key_within(ms)
+    local ok, status = vim.wait(ms, function() return vim.fn.getchar(1) ~= 0 end, 10)
+    if ok then return true end
+    if status == -2 then return nil end
+    return false
+end
+
 -- Show the configured terminals in a popup and wait for the key of one, or nil
 -- once the user backs out. A key that names no terminal is ignored rather than
 -- taken as a cancel: the choices are on screen, so it is a slip of the finger.
+--
+-- The popup is lazy: a key typed within `picker_delay` is taken without one, so
+-- a mapping run straight through to its terminal key does not flash a window
+-- and a dimmed editor for a single frame.
 local function pick_terminal(root, launch_info, running)
     local keys = vim.tbl_keys(config.commands)
     if #keys == 0 then
         vim.notify('foyer.nvim: no terminals configured in `commands`', vim.log.levels.WARN)
         return nil
     end
+
+    local waiting = key_within(config.picker_delay)
+    if waiting == nil then return nil end
+    if waiting then
+        local key = picked_key(pcall(vim.fn.getchar))
+        -- A slip at this speed is still a slip: show the choices it missed.
+        if key ~= nil then return key or nil end
+    end
+
     table.sort(keys)
 
     local lines = {}
@@ -1031,20 +1063,11 @@ local function pick_terminal(root, launch_info, running)
     })
 
     local picked
-    while true do
+    repeat
         -- getchar() blocks before the screen catches up with the new float.
         vim.cmd('redraw')
-        -- <C-c> can arrive as an interrupt rather than a key.
-        local ok, char = pcall(vim.fn.getchar)
-        if not ok or char == 27 or char == 3 then break end
-        if type(char) == 'number' then
-            local key = vim.fn.nr2char(char)
-            if config.commands[key] then
-                picked = key
-                break
-            end
-        end
-    end
+        picked = picked_key(pcall(vim.fn.getchar))
+    until picked ~= nil
 
     vim.api.nvim_win_close(win, true)
     vim.api.nvim_buf_delete(buf, { force = true })
@@ -1052,7 +1075,7 @@ local function pick_terminal(root, launch_info, running)
         vim.api.nvim_win_close(backdrop_win, true)
         vim.api.nvim_buf_delete(backdrop_buf, { force = true })
     end
-    return picked
+    return picked or nil
 end
 
 function M.terminal_command(opts)
