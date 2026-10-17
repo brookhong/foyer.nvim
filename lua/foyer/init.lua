@@ -109,20 +109,16 @@ local function escape_key(s)
 end
 
 -- Keyed by the terminal's identity, so the same terminal reopened reuses its
--- file. The pid separates two Neovim instances; the caller's prefix separates a
--- project terminal keyed `1` from a named terminal called `1`.
+-- file. The pid separates two Neovim instances.
 local function context_path(key)
     return vim.fs.joinpath(context_dir, ('%d-%s.json'):format(vim.fn.getpid(), key))
 end
 
 -- The root is hashed rather than flattened: a deep path would otherwise make a
--- filename longer than the filesystem allows.
+-- filename longer than the filesystem allows. A global terminal has no root to
+-- hash, so its empty bucket gives it one file for the session.
 local function term_context_path(root, term_key)
     return context_path(('t-%s-%s'):format(vim.fn.sha256(root):sub(1, 8), escape_key(term_key)))
-end
-
-local function named_context_path(name)
-    return context_path('n-' .. escape_key(name))
 end
 
 -- Write a terminal's context. An empty info means "keep the context this
@@ -824,44 +820,84 @@ local function resolve_command(term_key, root, launch_info)
     return val
 end
 
+-- A resolved entry is a string, a `{ command, arguments }` pair, or either of
+-- those carrying `cwd` and `scope` alongside.
+local function entry_command(entry)
+    if type(entry) ~= "table" then return entry end
+    return entry[2] and entry[1] .. " " .. entry[2] or entry[1]
+end
+
+local function entry_name(entry)
+    return type(entry) == "table" and entry[1] or entry
+end
+
+local function entry_cwd(entry, root)
+    return type(entry) == "table" and entry.cwd or root
+end
+
+local function entry_is_global(entry)
+    return type(entry) == "table" and entry.scope == "global"
+end
+
+-- Where a terminal's identity lives. A global entry keeps one terminal for the
+-- whole session, wherever you are; every other one is per project root. The
+-- bucket also keys the context file, so a global agent reads one file rather
+-- than a new one per repo.
+local function entry_bucket(entry, root)
+    if entry_is_global(entry) then return "" end
+    return root
+end
+
+-- Which keys have a live terminal, each looked up in its own bucket.
+local function running_terminals(root, launch_info)
+    local running = {}
+    for key in pairs(config.commands) do
+        local bucket = entry_bucket(resolve_command(key, root, launch_info), root)
+        local buf = term_bufs[bucket] and term_bufs[bucket][key]
+        if buf then running[key] = buf end
+    end
+    return running
+end
+
 local function open_term(root, term_key, launch_info)
+    local entry = resolve_command(term_key, root, launch_info)
+    local bucket = entry_bucket(entry, root)
+
     vim.cmd('split')
 
     local pd = vim.fn.getcwd()
 
-    vim.cmd("lcd " .. vim.fn.fnameescape(root))
+    vim.cmd("lcd " .. vim.fn.fnameescape(entry_cwd(entry, root)))
 
-    local term_commands = resolve_command(term_key, root, launch_info)
-    export_context(publish(term_context_path(root, term_key), launch_info))
-    if type(term_commands) == "string" then
-        vim.cmd("term " .. term_commands)
-    else
-        vim.cmd("term " .. term_commands[1] .. " " .. term_commands[2])
-    end
+    export_context(publish(term_context_path(bucket, term_key), launch_info))
+    vim.cmd("term " .. entry_command(entry))
     vim.cmd("lcd " .. vim.fn.fnameescape(pd))
 
-    if term_bufs[root] == nil then
-        term_bufs[root] = {}
+    if term_bufs[bucket] == nil then
+        term_bufs[bucket] = {}
     end
-    term_bufs[root][term_key] = vim.api.nvim_get_current_buf()
+    term_bufs[bucket][term_key] = vim.api.nvim_get_current_buf()
     -- Attach now so is_idle() actually tracks output from the very first
     -- command instead of reporting a busy terminal as idle.
-    setup_terminal_keymaps(term_bufs[root][term_key])
+    setup_terminal_keymaps(term_bufs[bucket][term_key])
     vim.cmd('close')
     -- TermOpen autocmds may queue a startinsert that only takes effect once we
     -- return to the main loop. The terminal is created in the background here,
     -- so cancel it instead of letting it leak into whatever buffer is current.
     vim.cmd('stopinsert')
+    return term_bufs[bucket][term_key]
 end
 
 function M.send_terminal_command(term_key, opts)
     opts = opts or {}
     capture(opts)
     local root = project_root(vim.env.HOME)
-    local target_buf = term_bufs[root] and term_bufs[root][term_key] or nil
+    local entry = resolve_command(term_key, root, opts.launch_info)
+    local bucket = entry_bucket(entry, root)
+    local target_buf = term_bufs[bucket] and term_bufs[bucket][term_key] or nil
 
     if target_buf and not vim.api.nvim_buf_is_valid(target_buf) then
-        term_bufs[root][term_key] = nil
+        term_bufs[bucket][term_key] = nil
         target_buf = nil
     end
 
@@ -878,7 +914,7 @@ function M.send_terminal_command(term_key, opts)
         return
     end
 
-    publish(term_context_path(root, term_key), opts.launch_info)
+    publish(term_context_path(bucket, term_key), opts.launch_info)
 
     local OSC_commands = get_osc_commands(target_buf)
     local command = opts.command
@@ -889,8 +925,7 @@ function M.send_terminal_command(term_key, opts)
     if interactive then
         current_term = target_buf
 
-        local term = resolve_command(term_key, root, opts.launch_info)
-        term = type(term) == "table" and term[1] or term
+        local term = entry_name(entry)
         local title = 'Ctrl-s to send command to 『' .. term .. ' 』'
         -- The ref never appears in the buffer, so the frame is the only place
         -- the user can see what the send is going to carry.
@@ -995,16 +1030,48 @@ local function pick_terminal(root, launch_info, running)
         if key ~= nil then return key or nil end
     end
 
-    table.sort(keys)
-
-    local lines = {}
+    -- One row per key: its name, then the tags worth knowing before picking.
+    -- A global terminal is the same one in every project, and a running one is
+    -- reused rather than spawned. The names are padded to one width so the tags
+    -- line up in a column of their own.
+    local rows = {}
+    local name_width = 0
     for _, key in ipairs(keys) do
-        local term = resolve_command(key, root, launch_info)
-        term = type(term) == 'table' and term[1] or term
-        -- A running terminal is reused rather than spawned, which is worth
-        -- knowing before picking it.
-        local mark = running[key] and ' ●' or ''
-        table.insert(lines, (' %s  %s%s '):format(key, tostring(term), mark))
+        local entry = resolve_command(key, root, launch_info)
+        local row = {
+            key = key,
+            name = tostring(entry_name(entry)),
+            global = entry_is_global(entry),
+            running = running[key] ~= nil,
+        }
+        name_width = math.max(name_width, vim.fn.strdisplaywidth(row.name))
+        table.insert(rows, row)
+    end
+    -- This project's terminals first, the global ones gathered below them:
+    -- what belongs here leads, what follows you everywhere comes after. Each
+    -- group stays in key order.
+    table.sort(rows, function(a, b)
+        if a.global ~= b.global then return b.global end
+        return a.key < b.key
+    end)
+
+    local any_global = vim.iter(rows):any(function(row) return row.global end)
+    local lines, tags = {}, {}
+    for i, row in ipairs(rows) do
+        local line = (' %s  %s'):format(row.key, row.name)
+        if row.global or row.running then
+            line = line .. (' '):rep(name_width - vim.fn.strdisplaywidth(row.name)) .. ' '
+            if row.global then
+                -- Byte offsets, for the highlight below.
+                tags[i] = { #line, #line + #'global' }
+                line = line .. 'global'
+            elseif any_global then
+                -- Hold the tag's place, so every ● sits in one column.
+                line = line .. (' '):rep(#'global')
+            end
+            if row.running then line = line .. ' ●' end
+        end
+        lines[i] = line .. ' '
     end
 
     local width = 0
@@ -1019,6 +1086,9 @@ local function pick_terminal(root, launch_info, running)
     local ns = vim.api.nvim_create_namespace('foyer_pick')
     for i = 1, #lines do
         vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 1, { end_col = 2, hl_group = 'Special' })
+        if tags[i] then
+            vim.api.nvim_buf_set_extmark(buf, ns, i - 1, tags[i][1], { end_col = tags[i][2], hl_group = 'Comment' })
+        end
     end
     vim.bo[buf].modifiable = false
 
@@ -1083,54 +1153,52 @@ function M.terminal_command(opts)
     capture(opts)
 
     local root = project_root(vim.env.HOME)
-    local project_term_bufs = term_bufs[root] or {}
-    for name, buf in pairs(project_term_bufs) do
-        if not vim.api.nvim_buf_is_valid(buf) then
-            project_term_bufs[name] = nil
+    -- Every bucket, not just this project's: a global terminal is offered here
+    -- too, and a buffer the user wiped must not be reported running.
+    for _, bufs in pairs(term_bufs) do
+        for key, buf in pairs(bufs) do
+            if not vim.api.nvim_buf_is_valid(buf) then
+                bufs[key] = nil
+            end
         end
     end
 
-    local term_key = pick_terminal(root, opts.launch_info, project_term_bufs)
-    if not term_key then return end
-
-    if term_bufs[root] == nil then
-        term_bufs[root] = {}
+    local term_key = opts.key
+    if term_key then
+        if config.commands[term_key] == nil then
+            vim.notify("foyer.nvim: no terminal configured for key '" .. term_key .. "'",
+                vim.log.levels.ERROR)
+            return
+        end
+    else
+        term_key = pick_terminal(root, opts.launch_info, running_terminals(root, opts.launch_info))
+        if not term_key then return end
     end
-    if term_bufs[root][term_key] == nil then
-        open_term(root, term_key, opts.launch_info)
+
+    local entry = resolve_command(term_key, root, opts.launch_info)
+    local bucket = entry_bucket(entry, root)
+    if term_bufs[bucket] == nil then
+        term_bufs[bucket] = {}
+    end
+    local buf = term_bufs[bucket][term_key]
+    if buf == nil then
+        buf = open_term(root, term_key, opts.launch_info)
+    end
+
+    -- Step into the terminal rather than prompt for it: the window is the whole
+    -- point for a program with a UI of its own, which is what a global terminal
+    -- is kept around for -- say `switch = false` to get the prompt anyway.
+    -- Published before the switch, so an agent already in there re-reads the
+    -- file and learns where we are now.
+    local switch = opts.switch
+    if switch == nil then switch = entry_is_global(entry) end
+    if switch then
+        publish(term_context_path(bucket, term_key), opts.launch_info)
+        vim.api.nvim_set_current_buf(buf)
+        return buf
     end
 
     M.send_terminal_command(term_key, opts)
-end
-
--- Terminals that are not project-scoped: one reused buffer per name, opened in
--- a directory of its own ($HOME unless told otherwise).
-local named_terms = {}
-
-function M.open_terminal(name, command, opts)
-    opts = opts or {}
-    local buf = named_terms[name]
-    if buf and not vim.api.nvim_buf_is_valid(buf) then buf = nil end
-
-    -- Before the switch, not just before the spawn: an agent already running in
-    -- there re-reads the file, so it learns where we are now too.
-    local path = publish(named_context_path(name), opts.launch_info)
-
-    if buf then
-        vim.api.nvim_set_current_buf(buf)
-    else
-        -- The job inherits the directory; the window gets the old one back, so
-        -- the terminal's window-local cwd is not left pointing at it.
-        local pd = vim.fn.getcwd()
-        vim.cmd('lcd ' .. vim.fn.fnameescape(opts.cwd or vim.env.HOME))
-        export_context(path)
-        vim.cmd('terminal ' .. command)
-        vim.cmd('lcd ' .. vim.fn.fnameescape(pd))
-        buf = vim.api.nvim_get_current_buf()
-        named_terms[name] = buf
-    end
-    setup_terminal_keymaps(buf)
-    return buf
 end
 
 function M.edit_selection()

@@ -16,7 +16,8 @@ until you are done with it here.
   half-typed at the prompt into a floating buffer, then writes it back.
 - **Project-scoped named terminals** — one keypress picks a terminal by its
   first character (`z` → zsh, `g` → gdb, `a` → your coding agent). Terminals are
-  keyed by project root, spawned on demand, and reused.
+  keyed by project root, spawned on demand, and reused; a `scope = 'global'`
+  one is kept for the whole session instead.
 - **Per-terminal command history** — persisted across sessions in
   `stdpath('cache')/foyer.json`, scoped per terminal name. `<C-p>`/`<C-n>`
   walk it, and typing first filters the history by substring, with the match
@@ -73,6 +74,11 @@ require('foyer').setup({
             end
             return 'zsh'
         end,
+        -- a table entry may also name cwd and scope: 'global' keeps one
+        -- terminal for the whole session instead of one per project root,
+        -- and picking it steps into the terminal instead of prompting
+        F = { 'opencode', '-c --agent counselor',
+              cwd = vim.env.HOME, scope = 'global' },
     },
 
     -- Markers used to find the project root that scopes terminals.
@@ -129,8 +135,8 @@ once. A program with no key of its own keeps the defaults.
 
 ### `launch_info`
 
-Captured for you: `terminal_command()`, `send_terminal_command()` and
-`open_terminal()` read the current file and line, plus `start_line`/`end_line`
+Captured for you: `terminal_command()` and `send_terminal_command()` read the
+current file and line, plus `start_line`/`end_line`
 when you are in visual mode, before anything in the call can change them. The
 table reaches the `commands` resolver untouched and is published verbatim, so a
 key of your own travels all the way to the agent:
@@ -199,7 +205,6 @@ end, { desc = 'Edit selection in floating window' })
 | `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float, width for a split. A neighbouring split keeps its minimum width, so a split may stop a few columns short. |
 | `tab_switch()` | Move to the next window worth looking at: `CTRL-W w` order, wrapping around, skipping floats and windows a full-screen neighbour has squeezed to `'winminwidth'`/`'winminheight'`. With nothing left to step into, switches to the alternate buffer (`CTRL-^`) instead. A maximised diff pane restores the squeezed pane and steps into it. |
 | `is_idle(buf, threshold_ms)` | Whether `buf` has produced no output for `threshold_ms` (default 1000). |
-| `open_terminal(name, command, opts)` | A terminal that is not project-scoped: one reused buffer per `name`, spawned in `opts.cwd` (default `$HOME`), context published and keymaps applied. For an agent you keep one conversation with wherever you are. |
 
 ### `opts` for `terminal_command` / `send_terminal_command`
 
@@ -211,6 +216,18 @@ end, { desc = 'Edit selection in floating window' })
 | `win_type` | `'sidebar'` for a right-hand split, otherwise a floating window. |
 | `auto_start` | Spawn the terminal if it does not exist yet. |
 | `launch_info` | Override the captured context. Passed to the `commands` resolver and published for the agent. |
+
+`terminal_command` also takes `key`, the `commands` key to drive instead of
+asking for one, and `switch`, which shows the terminal in the current window
+rather than opening a prompt and returns its buffer. `switch` defaults to true
+for a `scope = 'global'` terminal — pass `false` to get the prompt there
+anyway — so an agent on its own key is just its key:
+
+```lua
+vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
+    foyer.terminal_command({ key = 'F' })
+end, { desc = 'opencode terminal' })
+```
 
 A `selection` never sits in the command buffer: that opens empty and in insert
 mode, with the reference shown in its title, and the reference joins below the
@@ -281,9 +298,10 @@ reads a path you attached for another.
 
 Notes:
 
-- Only terminals this plugin opened get a context. `open_terminal()` is the way
-  to get one outside the project-scoped `commands`; a terminal you spawn by hand
-  is not adopted at all — no context, and none of the terminal-buffer mappings.
+- Only terminals this plugin opened get a context. A `scope = 'global'`
+  terminal has one file for the session, since it is the same conversation
+  everywhere; a terminal you spawn by hand is not adopted at all — no context,
+  and none of the terminal-buffer mappings.
 - The snapshot ages. `captured_at` and `captured_unix` are in the file so a model
   can notice that "fix this function" was said twenty minutes ago.
 - The files live in `stdpath('cache')/foyer/`, one per terminal, and are removed
@@ -328,9 +346,9 @@ always starts in normal mode.
 ### Terminal buffer
 
 The last three are on every terminal this plugin opens. The rest are attached
-when a terminal is shown in one of this plugin's own windows, which is something
-`open_terminal()` does not do — so a terminal from `open_terminal()` has only
-those three.
+when a terminal is shown in one of this plugin's own windows, which `switch`
+does not do — it hands the terminal your window, so a terminal opened that way
+has only those three.
 
 | Key | Mode | Action |
 | --- | --- | --- |

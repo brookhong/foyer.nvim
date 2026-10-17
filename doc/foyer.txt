@@ -54,6 +54,22 @@ commands ~
     - a function `f(project_root, launch_info)` returning either of the above.
       It is called every time, so the terminal can depend on the project.
 
+    A table entry may also name, alongside its two elements:
+
+    cwd     Directory the terminal is spawned in, instead of the project root.
+    scope   `'global'` keeps one terminal for the whole session, wherever you
+            are, and one context file with it. Anything else, or nothing, is
+            the default: one terminal per project root. Picking a global
+            terminal steps into it rather than opening a prompt, since a
+            program kept for the session has a UI of its own to talk to. Use
+            it for an agent you want a single long conversation with: >lua
+        commands = {
+            z = 'zsh',
+            a = { 'opencode', '-c' },
+            F = { 'opencode', '-c --agent counselor',
+                  cwd = vim.env.HOME, scope = 'global' },
+        }
+<
 root_markers ~
     List of directory markers used to locate the project root that scopes
     terminals, as accepted by |vim.fs.root()|. Defaults to
@@ -111,8 +127,8 @@ Example: >lua
                                                                   *foyer-opts*
                                                            *foyer.launch_info*
 launch_info ~
-    The context a prompt was composed with. |foyer.terminal_command()|,
-    |foyer.send_terminal_command()| and |foyer.open_terminal()| capture it
+    The context a prompt was composed with. |foyer.terminal_command()| and
+    |foyer.send_terminal_command()| capture it
     themselves, so a mapping does no bookkeeping. Passing one explicitly
     overrides the capture. It reaches the `commands` resolver
     untouched -- the plugin never inspects it -- and is published per terminal
@@ -144,6 +160,14 @@ Command {opts} accepted by |foyer.terminal_command()| and
     auto_start    Spawn the terminal if it does not exist yet.
     launch_info   See |foyer.launch_info|.
 
+|foyer.terminal_command()| also accepts:
+
+    key           The `commands` key to drive, instead of asking for one.
+    switch        Show the terminal in the current window rather than opening
+                  a prompt for it, and return its buffer. Defaults to true for
+                  a `scope = 'global'` terminal; `false` asks for the prompt
+                  even there.
+
 A `selection` never sits in the command buffer: that opens empty and in Insert
 mode, with the reference shown in its title, and the reference joins below the
 prompt, after a blank line, as it is sent. So the line stays yours to edit and
@@ -171,9 +195,21 @@ is dropped and said so via |vim.notify()|.
 terminal_command({opts})
     Wait for a `commands` key, spawn that terminal if it is not running for
     the current project root, then open a command buffer for it. With no key
-    typed within `picker_delay`, a popup lists the keys, marking running
-    terminals `●`. <Esc> or CTRL-C cancels; a key that names no terminal is
+    typed within `picker_delay`, a popup lists the keys, tagging global
+    terminals `global` and gathering them at the bottom, and marking running
+    ones `●`. <Esc> or CTRL-C cancels; a key that names no terminal is
     ignored, and one typed before the popup showed brings it up.
+
+    `opts.key` names the terminal outright, so a mapping can go straight to
+    one, and `opts.switch` steps into its buffer instead of opening a prompt.
+    A `scope = 'global'` terminal switches by default, so an agent on its own
+    key is just its key: >lua
+        vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
+            foyer.terminal_command({ key = 'F' })
+        end, { desc = 'opencode terminal' })
+<
+    The context is published on every call, switch or spawn, so an agent
+    already running in there learns where you are now.
 
                                                *foyer.send_terminal_command()*
 send_terminal_command({term_key}, {opts})
@@ -219,33 +255,12 @@ tab_switch()
     |foyer.toggle_full_size()| gives the squeezed pane its size back and steps
     into it, because a diff only reads beside its other half.
 
-                                                             *foyer.is_idle()*
+                                                              *foyer.is_idle()*
 is_idle({buf}, {threshold_ms})
     Return true when {buf} has produced no output for {threshold_ms}
     milliseconds (default 1000). Used internally to decide whether a terminal
     is still busy, in which case the terminal is shown instead of a new
     command buffer.
-
-                                                       *foyer.open_terminal()*
-open_terminal({name}, {command}, {opts})
-    Open, or switch to, a terminal that is not scoped to a project: one reused
-    buffer per {name}, spawned in `opts.cwd` (default $HOME). Use it for an
-    agent you want one long conversation with wherever you are; the `commands`
-    terminals of |foyer.setup()| are keyed by project root instead.
-
-    {name} keys both the reused buffer and the context file, so keep it short.
-    {opts} may carry `cwd` and `launch_info`; the context is published on
-    every call, switch or spawn, so an agent already running in there learns
-    where you are now. Returns the terminal buffer.
->lua
-        vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
-            foyer.open_terminal('opencode', 'opencode -c')
-        end, { desc = 'Home opencode terminal' })
-<
-    The context and the terminal-buffer mappings are handled for you; a
-    terminal spawned by hand gets neither. Note that this does not open one of
-    this plugin's own windows, so only the <C-x> mappings are attached, see
-    |foyer-mappings|.
 
 ==============================================================================
 5. AGENT CONTEXT                                               *foyer-context*
@@ -283,9 +298,10 @@ tokens on every request: >
     or "my selection". If it is unset, ask which file is meant.
 <
 Each terminal has its own file, so an agent in one project never reads a path
-attached for another. |foyer.open_terminal()| covers terminals outside the
-project-scoped `commands`; one opened by hand has neither the variable nor a
-send to trigger a publish, and its agent has nothing to read.
+attached for another -- a `scope = 'global'` terminal has one file for the
+session instead, since it is the same conversation everywhere. A terminal
+opened by hand has neither the variable nor a send to trigger a publish, and
+its agent has nothing to read.
 
 The files live in `stdpath('cache')/foyer/`, one per terminal, and are removed
 on |VimLeavePre|. A terminal closed and reopened keeps its file, so a long
@@ -336,7 +352,7 @@ In the terminal buffer ~
 
 The <C-x> mappings and the yank fix are on every terminal this plugin opens;
 the rest are attached when a terminal is shown in one of this plugin's own
-windows, which |foyer.open_terminal()| does not do.
+windows, which `switch` does not do -- it hands the terminal your window.
 
     [p                n    Jump to the previous shell prompt
     ]p                n    Jump to the next shell prompt
