@@ -84,13 +84,19 @@ end
 
 -- The selected range named the way a shell or an agent can resolve it:
 -- `src/main.c:30-36`. Nothing is quoted: the prompt is prose the user is
--- writing, not a command line being assembled.
-local function selection_ref(info)
+-- writing, not a command line being assembled. {absolute} names the file from
+-- the root of the filesystem instead, for a receiver that does not sit in the
+-- project the name is relative to.
+local function selection_ref(info, absolute)
     if not (info.current_file and info.start_line) then return nil end
-    if info.end_line == info.start_line then
-        return ('%s:%d'):format(info.current_file, info.start_line)
+    local file = info.current_file
+    if absolute and info.project_root then
+        file = vim.fs.joinpath(info.project_root, file)
     end
-    return ('%s:%d-%d'):format(info.current_file, info.start_line, info.end_line)
+    if info.end_line == info.start_line then
+        return ('%s:%d'):format(file, info.start_line)
+    end
+    return ('%s:%d-%d'):format(file, info.start_line, info.end_line)
 end
 
 -- What the user typed, with the ref below it after a blank line. The ref joins
@@ -165,6 +171,10 @@ vim.api.nvim_create_autocmd('VimLeavePre', {
     end,
 })
 
+-- The opts whose selection capture() wrote, rather than the caller: only
+-- those may be renamed for the terminal they end up going to.
+local captured_selection = setmetatable({}, { __mode = 'k' })
+
 local function capture(opts)
     if opts.launch_info ~= nil then return end
     opts.launch_info = launch_info()
@@ -172,7 +182,10 @@ local function capture(opts)
     -- A ref is only useful on a prompt that is going to open; a send that asked
     -- for no window has nowhere to put it.
     if opts.interactive or opts.command == nil or opts.command == '' then
-        opts.selection = opts.selection or selection_ref(opts.launch_info)
+        if opts.selection == nil then
+            opts.selection = selection_ref(opts.launch_info)
+            captured_selection[opts] = opts.selection ~= nil
+        end
         -- The window opened next is no place to still be in Visual mode.
         vim.cmd('normal! \27')
     end
@@ -457,16 +470,66 @@ local function setup_terminal_keymaps(buf)
     })
 end
 
+-- Remove the history filter's highlight from {win_id}, and only that: the
+-- window may be the user's own, with matches of its own in it.
+local function clear_foyer_matches(win_id)
+    win_id = win_id or vim.api.nvim_get_current_win()
+    for _, m in ipairs(vim.fn.getmatches(win_id)) do
+        if m.group == 'FoyerMatch' then
+            vim.fn.matchdelete(m.id, win_id)
+        end
+    end
+end
+
+-- Put away a window this plugin opened, then drop {bufnr} if given. A float
+-- or a sidebar is the plugin's own and simply closes; a window the plugin only
+-- borrowed -- the user's, with a prompt put in it -- is handed back the buffer
+-- it was showing, since closing it would take the user's layout with it.
+local function dismiss(win_id, bufnr)
+    if vim.api.nvim_win_is_valid(win_id) then
+        local back = vim.w[win_id].foyer_return_buf
+        if back == nil then
+            -- Nothing to hand back. Close it if it is ours to close; a window
+            -- of the user's is left alone -- the terminal's mappings outlive
+            -- the borrowing, and may be pressed after the user got there some
+            -- other way.
+            if vim.w[win_id].foyer_own then
+                vim.api.nvim_win_close(win_id, true)
+            end
+        else
+            vim.w[win_id].foyer_return_buf = nil
+            clear_foyer_matches(win_id)
+            if vim.api.nvim_buf_is_valid(back) and back ~= bufnr then
+                vim.api.nvim_win_set_buf(win_id, back)
+            else
+                vim.api.nvim_win_call(win_id, function() vim.cmd('enew') end)
+            end
+        end
+    end
+    if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+        -- Wiping a buffer closes the windows showing it, and a window left
+        -- showing it here is the user's: give it something else first.
+        for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+            vim.api.nvim_win_call(win, function()
+                local alt = vim.fn.bufnr('#')
+                if alt > 0 and alt ~= bufnr and vim.api.nvim_buf_is_valid(alt) then
+                    vim.api.nvim_win_set_buf(win, alt)
+                else
+                    vim.cmd('enew')
+                end
+            end)
+        end
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+    end
+end
+
 local function init_term_buf(term_bufnr, win_id, prev_buf)
-    vim.wo[vim.api.nvim_get_current_win()].relativenumber = true
+    -- Set for this buffer in this window only, so a borrowed window does not
+    -- keep it once its own buffer is back.
+    vim.wo[win_id][0].relativenumber = true
     for _, key in ipairs({'<CR>', '<C-c>', '<Esc>'}) do
         vim.keymap.set('n', key, function()
-            if vim.api.nvim_win_is_valid(win_id) then
-                vim.api.nvim_win_close(win_id, true)
-                if prev_buf and vim.api.nvim_buf_is_valid(prev_buf) then
-                    vim.api.nvim_buf_delete(prev_buf, { force = true })
-                end
-            end
+            dismiss(win_id, prev_buf)
         end, {silent = true, buffer = term_bufnr})
     end
 
@@ -526,7 +589,9 @@ local function set_window_title(win_id, title)
         cfg.title_pos = 'center'
         vim.api.nvim_win_set_config(win_id, cfg)
     else
-        vim.wo[win_id].winbar = ' ' .. title .. ' '
+        -- For the buffer in it, not the window: a borrowed window gets its
+        -- own buffer back without the frame of what was shown in it.
+        vim.wo[win_id][0].winbar = ' ' .. title .. ' '
     end
 end
 
@@ -535,14 +600,12 @@ local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
 
     vim.keymap.set('n', '<Esc>', function()
         if is_blank(buffer_text(bufnr)) then
-            vim.api.nvim_win_close(win_id, true)
-            vim.api.nvim_buf_delete(bufnr, { force = true })
+            dismiss(win_id, bufnr)
         end
     end, {silent = true, buffer = bufnr})
 
     vim.keymap.set('n', '<C-c>', function()
-        vim.api.nvim_win_close(win_id, true)
-        vim.api.nvim_buf_delete(bufnr, { force = true })
+        dismiss(win_id, bufnr)
     end, {silent = true, buffer = bufnr})
 
     vim.keymap.set('n', '<CR>', on_enter, {silent = true, buffer = bufnr})
@@ -581,7 +644,7 @@ local function attach_history(bufnr)
         if idx == #filtered_entries - 1 or filtered_entries[idx + 1].cmd ~= user_input then
             working_entries[#working_entries].cmd = user_input
 
-            vim.fn.clearmatches()
+            clear_foyer_matches()
             if user_input and user_input ~= "" then
                 filtered_entries = {}
                 for i = 1, #working_entries - 1 do
@@ -627,12 +690,12 @@ local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
             vim.api.nvim_set_current_buf(new_buf)
             vim.cmd('normal! G')
             -- The prompt has left this window; the frame should stop
-            -- advertising it and name the terminal now sitting there.
-            set_window_title(win_id, get_term_name(new_buf))
+            -- advertising it and name the terminal now sitting there, the
+            -- way the caller named it if it did.
+            set_window_title(win_id, opts.term_title or get_term_name(new_buf))
             init_term_buf(new_buf, win_id, bufnr)
         else
-            vim.api.nvim_win_close(win_id, true)
-            vim.api.nvim_buf_delete(bufnr, { force = true })
+            dismiss(win_id, bufnr)
         end
     end)
 
@@ -655,6 +718,7 @@ local function new_cmd_buf()
     local src = vim.api.nvim_get_current_buf()
     local bufnr = vim.api.nvim_create_buf(false, true)
     vim.bo[bufnr].modifiable = true
+    vim.b[bufnr].foyer_prompt = true
     for _, opt in ipairs({ 'expandtab', 'tabstop', 'shiftwidth', 'softtabstop' }) do
         vim.bo[bufnr][opt] = vim.bo[src][opt]
     end
@@ -692,6 +756,17 @@ local function create_window(type, title, on_ready, opts)
         win_id = vim.api.nvim_open_win(bufnr, true, {
             split = 'right',
         })
+    elseif type == "current" then
+        -- Borrow the window in front of the user. What it showed is what it
+        -- goes back to -- unless that is a prompt or a terminal of ours, left
+        -- there by the last send, when the buffer from before that still is.
+        win_id = vim.api.nvim_get_current_win()
+        local shown = vim.api.nvim_win_get_buf(win_id)
+        local ours = vim.b[shown].foyer_prompt or vim.bo[shown].buftype == 'terminal'
+        if not ours or vim.w[win_id].foyer_return_buf == nil then
+            vim.w[win_id].foyer_return_buf = shown
+        end
+        vim.api.nvim_win_set_buf(win_id, bufnr)
     else
         local width = vim.o.columns - 32
         local col = math.floor((vim.o.columns - width) / 2)
@@ -711,9 +786,11 @@ local function create_window(type, title, on_ready, opts)
         win_id = vim.api.nvim_open_win(bufnr, true, opts)
     end
 
+    -- Ours to close, unless it was borrowed: dismiss() closes only these.
+    if type ~= "current" and not reuse then vim.w[win_id].foyer_own = true end
     set_window_title(win_id, title)
-    vim.wo[win_id].relativenumber = true
-    vim.wo[win_id].cursorline = true
+    vim.wo[win_id][0].relativenumber = true
+    vim.wo[win_id][0].cursorline = true
 
     if on_ready then
         on_ready(bufnr, win_id)
@@ -896,6 +973,12 @@ function M.send_terminal_command(term_key, opts)
     local bucket = entry_bucket(entry, root)
     local target_buf = term_bufs[bucket] and term_bufs[bucket][term_key] or nil
 
+    -- A global terminal belongs to no project, and was likely started outside
+    -- this one, so a name relative to the project root points nowhere for it.
+    if captured_selection[opts] and entry_is_global(entry) then
+        opts.selection = selection_ref(opts.launch_info, true)
+    end
+
     if target_buf and not vim.api.nvim_buf_is_valid(target_buf) then
         term_bufs[bucket][term_key] = nil
         target_buf = nil
@@ -925,12 +1008,21 @@ function M.send_terminal_command(term_key, opts)
     if interactive then
         current_term = target_buf
 
-        local term = entry_name(entry)
+        -- The program alone does not say which agent this is: the same one can
+        -- run per project and as the global side chat. Name where it belongs
+        -- -- the picker's `global` tag, or the project -- so the frame tells
+        -- the two apart before anything is sent.
+        local place = entry_is_global(entry) and 'global' or vim.fs.basename(root)
+        local term = entry_name(entry) .. ' · ' .. place
         local title = 'Ctrl-s to send command to 『' .. term .. ' 』'
         -- The ref never appears in the buffer, so the frame is the only place
         -- the user can see what the send is going to carry.
         if opts.selection then title = title .. ' + ' .. opts.selection end
-        create_window(opts.win_type, title, function(bufnr, win_id, reused)
+        -- A global agent is a conversation of its own rather than a helper to
+        -- the code on screen, so its prompt takes the window you are in, as a
+        -- page you turn to, instead of a float or a sidebar beside your code.
+        local win_type = entry_is_global(entry) and 'current' or opts.win_type
+        create_window(win_type, title, function(bufnr, win_id, reused)
             -- A sidebar prompt outlives the send that opened it, so this send's
             -- ref, seed and history have to reach the buffer rather than the
             -- closure that set the window up.
@@ -952,13 +1044,13 @@ function M.send_terminal_command(term_key, opts)
             local function init_prompt(start_insert)
                 local seed = vim.split(command or "", '\n', { plain = true })
                 init_command_buf(bufnr, win_id, seed, function(cmd)
-                    vim.fn.clearmatches()
+                    clear_foyer_matches()
                     cmd = with_selection(cmd, vim.b[bufnr].foyer_selection)
                     if not is_blank(cmd) then
                         send_command(target_buf, cmd, OSC_commands[2], "\r", true)
                     end
                     return target_buf
-                end, { start_insert = start_insert })
+                end, { start_insert = start_insert, term_title = term })
             end
             if not M.is_idle(target_buf, 2000) then
                 -- Mid-output, the terminal takes the window instead of a
@@ -972,8 +1064,9 @@ function M.send_terminal_command(term_key, opts)
                 -- It is set up in Normal mode: insert would land in the
                 -- terminal that is about to take the window.
                 init_prompt(false)
-                set_window_title(win_id, term)
                 vim.api.nvim_set_current_buf(target_buf)
+                -- After the switch: the frame belongs to the buffer shown.
+                set_window_title(win_id, term)
                 init_term_buf(target_buf, win_id, bufnr)
                 return
             end
@@ -1185,14 +1278,10 @@ function M.terminal_command(opts)
         buf = open_term(root, term_key, opts.launch_info)
     end
 
-    -- Step into the terminal rather than prompt for it: the window is the whole
-    -- point for a program with a UI of its own, which is what a global terminal
-    -- is kept around for -- say `switch = false` to get the prompt anyway.
+    -- Step into the terminal rather than prompt for it, when asked to.
     -- Published before the switch, so an agent already in there re-reads the
     -- file and learns where we are now.
-    local switch = opts.switch
-    if switch == nil then switch = entry_is_global(entry) end
-    if switch then
+    if opts.switch then
         publish(term_context_path(bucket, term_key), opts.launch_info)
         vim.api.nvim_set_current_buf(buf)
         return buf

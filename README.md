@@ -76,7 +76,8 @@ require('foyer').setup({
         end,
         -- a table entry may also name cwd and scope: 'global' keeps one
         -- terminal for the whole session instead of one per project root,
-        -- and picking it steps into the terminal instead of prompting
+        -- and its prompt takes the current window instead of a float or
+        -- sidebar
         F = { 'opencode', '-c --agent counselor',
               cwd = vim.env.HOME, scope = 'global' },
     },
@@ -213,15 +214,21 @@ end, { desc = 'Edit selection in floating window' })
 | `command` | Send this text instead of opening a command buffer. |
 | `interactive` | Force the command buffer open even when `command` is set; `command` then seeds the buffer. |
 | `selection` | A reference appended to the prompt as it is sent. Set for you when the send starts in visual mode. |
-| `win_type` | `'sidebar'` for a right-hand split, otherwise a floating window. |
+| `win_type` | `'sidebar'` for a right-hand split, otherwise a floating window. Ignored for a `scope = 'global'` terminal, whose prompt takes the current window. |
 | `auto_start` | Spawn the terminal if it does not exist yet. |
 | `launch_info` | Override the captured context. Passed to the `commands` resolver and published for the agent. |
 
 `terminal_command` also takes `key`, the `commands` key to drive instead of
 asking for one, and `switch`, which shows the terminal in the current window
-rather than opening a prompt and returns its buffer. `switch` defaults to true
-for a `scope = 'global'` terminal — pass `false` to get the prompt there
-anyway — so an agent on its own key is just its key:
+rather than opening a prompt and returns its buffer.
+
+A `scope = 'global'` terminal is a conversation of its own rather than a helper
+to the code beside it, so its prompt does not open in a float or a sidebar: it
+takes the window you are in, and the terminal takes it in turn once you send.
+`<CR>`, `<C-c>` or `<Esc>` there hand the window back to the buffer it was
+showing, so your layout is never touched. A selection's reference names the file
+by its absolute path for a global terminal, since its agent sits in no
+particular project:
 
 ```lua
 vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
