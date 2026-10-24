@@ -1,5 +1,8 @@
 local M = {}
-local config = { commands = {}, root_markers = nil, bracketed_paste = true, send_prefix = {}, picker_delay = 500 }
+local config = {
+    commands = {}, root_markers = nil, bracketed_paste = true, send_prefix = {},
+    picker_delay = 500, selection_max_lines = 40,
+}
 local last_output_time = {}
 
 -- Directory markers locating the project root that scopes terminals.
@@ -82,28 +85,52 @@ local function launch_info()
     return info
 end
 
--- The selected range named the way a shell or an agent can resolve it:
--- `src/main.c:30-36`. Nothing is quoted: the prompt is prose the user is
--- writing, not a command line being assembled. {absolute} names the file from
--- the root of the filesystem instead, for a receiver that does not sit in the
--- project the name is relative to.
-local function selection_ref(info, absolute)
+-- The selected range in the project's own terms, `src/main.c:30-36`: short
+-- enough for a window title, which is where the user reads it.
+local function selection_ref(info)
     if not (info.current_file and info.start_line) then return nil end
-    local file = info.current_file
-    if absolute and info.project_root then
-        file = vim.fs.joinpath(info.project_root, file)
-    end
     if info.end_line == info.start_line then
-        return ('%s:%d'):format(file, info.start_line)
+        return ('%s:%d'):format(info.current_file, info.start_line)
     end
-    return ('%s:%d-%d'):format(file, info.start_line, info.end_line)
+    return ('%s:%d-%d'):format(info.current_file, info.start_line, info.end_line)
 end
 
--- What the user typed, with the ref below it after a blank line. The ref joins
--- here, as the prompt is sent, and never sits in the command buffer: the line
--- stays the user's to edit and to navigate history with, and history records
--- the prompt without a file position that will not be true next time. A blank
--- prompt stays blank, so the send is dropped: a bare line and range asks the
+-- The selection as an agent is to read it: said in words, from a path that
+-- resolves wherever the agent was started, with the lines themselves below.
+--
+-- A bare `path:30` reads as a location -- a compiler error, a grep hit -- and
+-- an agent reads a window of lines around one, then has to guess which of them
+-- was meant. And the numbers are the buffer's, while the agent reads the file
+-- on disk: unsaved edits above the selection point it at other lines
+-- altogether. The text settles both. Past `selection_max_lines` it is left
+-- out, so a selection the size of a file is not pasted whole; the label alone
+-- still says where to look.
+local function selection_block(sel)
+    local info = sel.info
+    local file = info.current_file
+    if info.project_root then file = vim.fs.joinpath(info.project_root, file) end
+    local where = info.end_line == info.start_line
+        and ('line %d'):format(info.start_line)
+        or ('lines %d-%d'):format(info.start_line, info.end_line)
+    local label = ('Selected in my editor: %s, %s'):format(file, where)
+    -- Said outright, so an agent that does open the file is not misled by it.
+    if sel.modified then label = label .. ' (unsaved; the file on disk differs)' end
+
+    local max = config.selection_max_lines or 0
+    if max <= 0 or #sel.lines > max then return label end
+    local text = table.concat(sel.lines, '\n')
+    -- A fence longer than any run of backticks in the text, so code that
+    -- holds a fence of its own cannot close this one early.
+    local fence = '```'
+    while text:find(fence, 1, true) do fence = fence .. '`' end
+    return ('%s\n%s%s\n%s\n%s'):format(label, fence, sel.filetype or '', text, fence)
+end
+
+-- What the user typed, with the selection below it after a blank line. It
+-- joins here, as the prompt is sent, and never sits in the command buffer: the
+-- line stays the user's to edit and to navigate history with, and history
+-- records the prompt without a selection that will not be true next time. A
+-- blank prompt stays blank, so the send is dropped: a selection alone asks the
 -- agent nothing.
 local function with_selection(cmd, ref)
     if not ref or is_blank(cmd) then return cmd end
@@ -175,6 +202,14 @@ vim.api.nvim_create_autocmd('VimLeavePre', {
 -- those may be renamed for the terminal they end up going to.
 local captured_selection = setmetatable({}, { __mode = 'k' })
 
+-- What a send appends below the prompt: the captured selection with its text,
+-- or a `selection` the caller gave, which is theirs and goes as given.
+local function selection_appendix(opts)
+    local sel = captured_selection[opts]
+    if sel then return selection_block(sel) end
+    return opts.selection
+end
+
 local function capture(opts)
     if opts.launch_info ~= nil then return end
     opts.launch_info = launch_info()
@@ -184,7 +219,17 @@ local function capture(opts)
     if opts.interactive or opts.command == nil or opts.command == '' then
         if opts.selection == nil then
             opts.selection = selection_ref(opts.launch_info)
-            captured_selection[opts] = opts.selection ~= nil
+            if opts.selection then
+                -- The lines as the buffer has them now, unsaved edits and all:
+                -- that is what the user selected, whatever the disk says.
+                local info = opts.launch_info
+                captured_selection[opts] = {
+                    info = info,
+                    lines = vim.api.nvim_buf_get_lines(0, info.start_line - 1, info.end_line, false),
+                    filetype = vim.bo.filetype,
+                    modified = vim.bo.modified,
+                }
+            end
         end
         -- The window opened next is no place to still be in Visual mode.
         vim.cmd('normal! \27')
@@ -973,12 +1018,6 @@ function M.send_terminal_command(term_key, opts)
     local bucket = entry_bucket(entry, root)
     local target_buf = term_bufs[bucket] and term_bufs[bucket][term_key] or nil
 
-    -- A global terminal belongs to no project, and was likely started outside
-    -- this one, so a name relative to the project root points nowhere for it.
-    if captured_selection[opts] and entry_is_global(entry) then
-        opts.selection = selection_ref(opts.launch_info, true)
-    end
-
     if target_buf and not vim.api.nvim_buf_is_valid(target_buf) then
         term_bufs[bucket][term_key] = nil
         target_buf = nil
@@ -1027,7 +1066,7 @@ function M.send_terminal_command(term_key, opts)
             -- ref, seed and history have to reach the buffer rather than the
             -- closure that set the window up.
             if reused then
-                vim.b[bufnr].foyer_selection = opts.selection
+                vim.b[bufnr].foyer_selection = selection_appendix(opts)
                 set_window_title(win_id, title)
                 -- A draft in there is the user's and stays. An empty buffer has
                 -- nothing to lose, so a seeded command still gets its chance
@@ -1070,7 +1109,7 @@ function M.send_terminal_command(term_key, opts)
                 init_term_buf(target_buf, win_id, bufnr)
                 return
             end
-            vim.b[bufnr].foyer_selection = opts.selection
+            vim.b[bufnr].foyer_selection = selection_appendix(opts)
             init_prompt(opts.selection ~= nil or not is_blank(command or ""))
         end)
     else

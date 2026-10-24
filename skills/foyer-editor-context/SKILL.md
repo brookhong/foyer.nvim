@@ -32,12 +32,13 @@ cat "$FOYER_CONTEXT"
 
 Rules:
 
-- A prompt sent from a visual selection carries the range as its own last line,
-  after a blank line: `sub/main.c:30-36`, or `sub/main.c:30` for one line. That
-  is the file and lines the request is about. A relative one is named exactly
-  as `current_file` is — resolve it against `project_root`, not your working
-  directory. An absolute one (sent to an agent that serves every project) is
-  already resolved.
+- A prompt sent from a visual selection ends with it, after a blank line:
+  `Selected in my editor: /repo/src/main.c, lines 30-36`, usually followed by
+  those lines in a fenced block. The fenced lines are exactly what the request
+  is about — answer about them, not about the code around them. They come from
+  the editor's buffer: if the label says `unsaved`, the file on disk differs,
+  so trust the fenced text over what you read from disk. Without a fenced block
+  the selection was too long to send; read those lines from the file.
 - If `$FOYER_CONTEXT` is unset or the file does not exist, this session is not in
   such a terminal. Ask which file is meant; do not guess one.
 - `captured_at` is when that prompt was written, not now, and it does not follow

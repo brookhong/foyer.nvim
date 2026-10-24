@@ -88,6 +88,11 @@ picker_delay ~
     a mapping run straight through to the key does not flash the popup.
     Defaults to `500`.
 
+selection_max_lines ~
+    A selection is sent with its lines up to this many, and as its location
+    alone beyond, see |foyer-opts|. `0` never sends the lines. Defaults to
+    `40`.
+
                                                            *foyer.send_prefix*
 send_prefix ~
     Keys that clear the receiver's input line and its screen, keyed by the
@@ -156,8 +161,8 @@ Command {opts} accepted by |foyer.terminal_command()| and
     command       Send this text instead of opening a command buffer.
     interactive   Force the command buffer open even when `command` is set;
                   `command` then seeds the buffer.
-    selection     A reference appended to the prompt as it is sent. Set for
-                  you when the send starts in Visual mode. See below.
+    selection     Text appended to the prompt as it is sent. Set for you
+                  when the send starts in Visual mode. See below.
     win_type      `'sidebar'` for a right-hand split; otherwise floating.
                   Ignored for a `scope = 'global'` terminal, see
                   |foyer-setup|.
@@ -170,24 +175,39 @@ Command {opts} accepted by |foyer.terminal_command()| and
     switch        Show the terminal in the current window rather than opening
                   a prompt for it, and return its buffer.
 
-A `selection` never sits in the command buffer: that opens empty and in Insert
-mode, with the reference shown in its title, and the reference joins below the
-prompt, after a blank line, as it is sent. So the line stays yours to edit and
-to walk history with, and history remembers the prompt without a file position
-that will not be true next time. Starting from Visual mode sets it to
-`current_file:start_line-end_line` from |foyer.launch_info|, e.g.
-`src/main.c:30-36`, or `src/main.c:30` for a single line. Type nothing and
-nothing is sent; a bare range asks the agent nothing.
+Starting from Visual mode attaches the selection. The command buffer opens
+empty and in Insert mode, with the selection's place shown in its title --
+`src/main.c:30-36` -- and the selection joins below the prompt, after a blank
+line, as it is sent: >
+    what does this do?
+
+    Selected in my editor: /repo/src/main.c, lines 30-36
+    ```c
+    ...the selected lines, as the buffer has them...
+    ```
+<
+The lines go with it because a bare `src/main.c:30` reads to an agent as a
+location, and it reads the lines around one and guesses which was meant; and
+the numbers are the buffer's, while the agent reads the file on disk, which
+unsaved edits can put out of step -- the label says so when they have. The
+path is absolute, so it resolves wherever the agent was started. A selection
+longer than `selection_max_lines` is sent as the label alone.
+
+None of it sits in the command buffer, so the line stays yours to edit and to
+walk history with, and history remembers the prompt without a selection that
+will not be true next time. Type nothing and nothing is sent; a selection
+alone asks the agent nothing. A `selection` you pass yourself is appended as
+given.
 
 A sidebar outlives the send that opened it, so sending again aims at the
 window already there rather than splitting another one: a draft still in it is
 yours and stays -- only an empty one takes a seeded `command` -- with the new
-reference replacing whatever the title advertised before, and the terminal
+selection replacing whatever the title advertised before, and the terminal
 left in there by the last send gives the window back to a fresh prompt. A
 floating window is transient and is simply opened again.
 
 A terminal still producing output keeps the window instead, see
-|foyer.is_idle()|; there is no prompt for a reference to ride on then, so it
+|foyer.is_idle()|; there is no prompt for a selection to ride on then, so it
 is dropped and said so via |vim.notify()|.
 
 ==============================================================================
@@ -204,9 +224,7 @@ terminal_command({opts})
 
     `opts.key` names the terminal outright, so a mapping can go straight to
     one, and `opts.switch` steps into its buffer instead of opening a prompt.
-    A `scope = 'global'` terminal opens its prompt in the current window, and
-    a selection's reference names the file by its absolute path there, since
-    the agent sits in no particular project: >lua
+    A `scope = 'global'` terminal opens its prompt in the current window: >lua
         vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
             foyer.terminal_command({ key = 'F' })
         end, { desc = 'opencode terminal' })
@@ -388,7 +406,7 @@ FoyerBackdrop
 8. LIMITATIONS                                             *foyer-limitations*
 
 - A send containing a newline -- a multi-line draft, or any prompt with a
-  `selection` reference under it -- is wrapped in bracketed paste, so the
+  `selection` under it -- is wrapped in bracketed paste, so the
   receiver inserts the newline instead of reading it as Enter and running the
   first line on its own. What the receiver then does with a multi-line input
   is its own business: an agent takes it as one prompt, a shell lands it on

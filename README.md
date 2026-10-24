@@ -95,6 +95,10 @@ require('foyer').setup({
     -- Defaults to 500.
     picker_delay = 500,
 
+    -- A selection is sent with its lines, up to this many; a longer one is
+    -- sent as its location alone. 0 never sends the lines. Defaults to 40.
+    selection_max_lines = 40,
+
     -- Keys that clear the receiver's input line and its screen, keyed by the
     -- program receiving them. Defaults to { Ctrl-U, Ctrl-L }. A program that
     -- binds either key to something of its own needs its own -- see below.
@@ -213,7 +217,7 @@ end, { desc = 'Edit selection in floating window' })
 | --- | --- |
 | `command` | Send this text instead of opening a command buffer. |
 | `interactive` | Force the command buffer open even when `command` is set; `command` then seeds the buffer. |
-| `selection` | A reference appended to the prompt as it is sent. Set for you when the send starts in visual mode. |
+| `selection` | Text appended to the prompt as it is sent. Set for you when the send starts in visual mode, see below. |
 | `win_type` | `'sidebar'` for a right-hand split, otherwise a floating window. Ignored for a `scope = 'global'` terminal, whose prompt takes the current window. |
 | `auto_start` | Spawn the terminal if it does not exist yet. |
 | `launch_info` | Override the captured context. Passed to the `commands` resolver and published for the agent. |
@@ -226,9 +230,7 @@ A `scope = 'global'` terminal is a conversation of its own rather than a helper
 to the code beside it, so its prompt does not open in a float or a sidebar: it
 takes the window you are in, and the terminal takes it in turn once you send.
 `<CR>`, `<C-c>` or `<Esc>` there hand the window back to the buffer it was
-showing, so your layout is never touched. A selection's reference names the file
-by its absolute path for a global terminal, since its agent sits in no
-particular project:
+showing, so your layout is never touched:
 
 ```lua
 vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
@@ -236,24 +238,41 @@ vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
 end, { desc = 'opencode terminal' })
 ```
 
-A `selection` never sits in the command buffer: that opens empty and in insert
-mode, with the reference shown in its title, and the reference joins below the
-prompt, after a blank line, as it is sent. So the line stays yours to edit and
-to walk history with, and history remembers the prompt without a file position
-that will not be true next time. Starting from visual mode sets it to
-`current_file:start_line-end_line` — `src/main.c:30-36`, or `src/main.c:30` for
-a single line. Type nothing and nothing is sent; a bare range asks the agent
-nothing.
+Starting from visual mode attaches the selection. The command buffer opens empty
+and in insert mode, with the selection's place shown in its title —
+`src/main.c:30-36` — and the selection joins below the prompt, after a blank
+line, as it is sent:
+
+````
+what does this do?
+
+Selected in my editor: /repo/src/main.c, lines 30-36
+```c
+…the selected lines, as the buffer has them…
+```
+````
+
+The lines go with it because a bare `src/main.c:30` reads to an agent as a
+location, and it reads the lines around one and guesses which was meant; and
+the numbers are the buffer's, while the agent reads the file on disk, which
+unsaved edits can put out of step — the label says so when they have. The path
+is absolute, so it resolves wherever the agent was started. A selection longer
+than `selection_max_lines` is sent as the label alone.
+
+None of it sits in the command buffer, so the line stays yours to edit and to
+walk history with, and history remembers the prompt without a selection that
+will not be true next time. Type nothing and nothing is sent; a selection alone
+asks the agent nothing. A `selection` you pass yourself is appended as given.
 
 A sidebar outlives the send that opened it, so sending again aims at the window
 already there rather than splitting another one: a draft still in it is yours
-and stays — only an empty one takes a seeded `command` — with the new reference
+and stays — only an empty one takes a seeded `command` — with the new selection
 replacing whatever the title advertised before, and the terminal left in there
 by the last send gives the window back to a fresh prompt. A floating window is
 transient and is simply opened again.
 
 A terminal still producing output keeps the window instead of giving it to a
-prompt (see `is_idle`); there is no prompt for a reference to ride on then, so
+prompt (see `is_idle`); there is no prompt for a selection to ride on then, so
 it is dropped and said so with `vim.notify`.
 
 ## Giving an agent your editor context
@@ -384,7 +403,7 @@ your colorscheme.
 ## Notes and limitations
 
 - A send containing a newline — a multi-line draft, or any prompt with a
-  `selection` reference under it — is wrapped in bracketed paste, so the
+  `selection` under it — is wrapped in bracketed paste, so the
   receiver inserts the newline instead of reading it as Enter and running the
   first line alone. What the receiver then does with a multi-line input is its
   own business: an agent takes it as one prompt, a shell lands it on one command
