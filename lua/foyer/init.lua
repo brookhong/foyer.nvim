@@ -18,7 +18,12 @@ function M.is_idle(buf, threshold_ms)
 end
 
 function M.setup(opts)
-    config = vim.tbl_deep_extend('force', config, opts or {})
+    -- Merged into the table itself rather than replacing it, so whatever holds
+    -- a reference to `config` sees what the user set, whenever it looked.
+    local merged = vim.tbl_deep_extend('force', config, opts or {})
+    for k, v in pairs(merged) do
+        config[k] = v
+    end
 end
 
 local context_dir = vim.fs.joinpath(vim.fn.stdpath('cache'), 'foyer')
@@ -239,7 +244,6 @@ end
 -- Command logger
 local cache_file = vim.fn.stdpath('cache') .. '/foyer.json'
 local history = {}
-local current_term = nil
 
 local function load_history()
     local file = io.open(cache_file, 'r')
@@ -665,17 +669,18 @@ local function insert_at_end(bufnr, win_id)
     vim.cmd('startinsert!')
 end
 
--- History navigation for one command buffer. Re-attachable, and must be
--- re-attached by anyone handing an existing buffer to a new send: the list is
--- read once, here, so a prompt that outlived its send would otherwise go on
--- walking the history as it stood when its window opened.
-local function attach_history(bufnr)
+-- History navigation for one command buffer, over the history of {term_buf}.
+-- Re-attachable, and must be re-attached by anyone handing an existing buffer
+-- to a new send: the list is read once, here, so a prompt that outlived its
+-- send would otherwise go on walking the history as it stood when its window
+-- opened.
+local function attach_history(bufnr, term_buf)
     set_default_hl()
 
     -- A copy of this terminal's history, so filtering never mutates the stored
     -- list, with the draft appended as the last entry: navigation walks back to
     -- it, and typing updates it in place.
-    local entries = history[get_term_name(current_term)] or {}
+    local entries = history[get_term_name(term_buf)] or {}
     local working_entries = {}
     for _, entry in ipairs(entries) do
         table.insert(working_entries, entry)
@@ -725,11 +730,13 @@ local function attach_history(bufnr)
     vim.keymap.set('i', '<C-x><C-n>', '<C-n>', {silent = true, buffer = bufnr})
 end
 
+-- {opts.term} is the terminal the prompt is for: its history is the one
+-- walked and the one the sent prompt joins.
 local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
     opts = opts or {}
     init_command_buf_shared(bufnr, win_id, lines, function()
         local cmd = buffer_text(bufnr)
-        log_command(cmd, current_term)
+        log_command(cmd, opts.term)
         local new_buf = on_command_input(cmd)
         if new_buf then
             vim.api.nvim_set_current_buf(new_buf)
@@ -752,7 +759,7 @@ local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
         insert_at_end(bufnr, win_id)
     end
 
-    attach_history(bufnr)
+    attach_history(bufnr, opts.term)
 end
 
 local active_cmd_wins = {}
@@ -773,11 +780,15 @@ end
 -- {on_ready} is called with reused = true when the window already held a
 -- command buffer, so a caller can re-point that draft at what this send
 -- carries instead of silently handing back the state of the send before it.
+--
+-- {opts.term} is the terminal the window is for, which a sidebar is kept per;
+-- {opts.float} overrides the config a float is opened with.
 local function create_window(type, title, on_ready, opts)
     opts = opts or {}
+    local term = opts.term
     -- A sidebar is a persistent split, so reopening it would stack another one;
     -- a float is transient and may simply be opened again.
-    local reuse = type == "sidebar" and active_cmd_wins[current_term] or nil
+    local reuse = type == "sidebar" and term and active_cmd_wins[term] or nil
     if reuse and not vim.api.nvim_win_is_valid(reuse) then reuse = nil end
 
     if reuse and vim.bo[vim.api.nvim_win_get_buf(reuse)].buftype ~= 'terminal' then
@@ -817,7 +828,7 @@ local function create_window(type, title, on_ready, opts)
         local col = math.floor((vim.o.columns - width) / 2)
         local row = 1
 
-        opts = vim.tbl_deep_extend('force', {
+        local float = vim.tbl_deep_extend('force', {
             relative = 'editor',
             width = width,
             height = 10,
@@ -826,9 +837,9 @@ local function create_window(type, title, on_ready, opts)
             border = 'rounded',
             footer = { { " Press <Ctrl-c> or <Esc> to close this window ", "FloatFooter" } },
             footer_pos = "right",
-        }, opts)
+        }, opts.float or {})
 
-        win_id = vim.api.nvim_open_win(bufnr, true, opts)
+        win_id = vim.api.nvim_open_win(bufnr, true, float)
     end
 
     -- Ours to close, unless it was borrowed: dismiss() closes only these.
@@ -843,13 +854,12 @@ local function create_window(type, title, on_ready, opts)
 
     -- Only a sidebar is tracked: it is the one that gets reused, and a float
     -- left open must not be mistaken for it.
-    if not reuse and type == "sidebar" and current_term ~= nil then
-        active_cmd_wins[current_term] = win_id
-        local term_key = current_term
+    if not reuse and type == "sidebar" and term ~= nil then
+        active_cmd_wins[term] = win_id
         vim.api.nvim_create_autocmd('WinClosed', {
             pattern = tostring(win_id),
             once = true,
-            callback = function() active_cmd_wins[term_key] = nil end,
+            callback = function() active_cmd_wins[term] = nil end,
         })
     end
 end
@@ -920,15 +930,14 @@ function M.edit_input()
 
     get_terminal_input(function(input)
         local term_bufnr = vim.api.nvim_get_current_buf()
-        current_term = term_bufnr
 
         create_window('floating', 'Edit Terminal Command', function(bufnr, win_id)
             local text = input or ""
             local lines = vim.split(text, '\n', {plain = true})
             init_command_buf(bufnr, win_id, lines, function(cmd)
-                send_command(term_bufnr, cmd, get_osc_commands(current_term)[1], "", false)
-            end, { start_insert = text ~= "" })
-        end)
+                send_command(term_bufnr, cmd, get_osc_commands(term_bufnr)[1], "", false)
+            end, { start_insert = text ~= "", term = term_bufnr })
+        end, { term = term_bufnr })
     end)
 end
 
@@ -1045,8 +1054,6 @@ function M.send_terminal_command(term_key, opts)
         interactive = true
     end
     if interactive then
-        current_term = target_buf
-
         -- The program alone does not say which agent this is: the same one can
         -- run per project and as the global side chat. Name where it belongs
         -- -- the picker's `global` tag, or the project -- so the frame tells
@@ -1074,7 +1081,7 @@ function M.send_terminal_command(term_key, opts)
                 if is_blank(buffer_text(bufnr)) and not is_blank(command or "") then
                     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(command, '\n', { plain = true }))
                 end
-                attach_history(bufnr)
+                attach_history(bufnr, target_buf)
                 if opts.selection or not is_blank(buffer_text(bufnr)) then
                     insert_at_end(bufnr, win_id)
                 end
@@ -1089,7 +1096,7 @@ function M.send_terminal_command(term_key, opts)
                         send_command(target_buf, cmd, OSC_commands[2], "\r", true)
                     end
                     return target_buf
-                end, { start_insert = start_insert, term_title = term })
+                end, { start_insert = start_insert, term_title = term, term = target_buf })
             end
             if not M.is_idle(target_buf, 2000) then
                 -- Mid-output, the terminal takes the window instead of a
@@ -1111,7 +1118,7 @@ function M.send_terminal_command(term_key, opts)
             end
             vim.b[bufnr].foyer_selection = selection_appendix(opts)
             init_prompt(opts.selection ~= nil or not is_blank(command or ""))
-        end)
+        end, { term = target_buf })
     else
         if vim.b[target_buf] and vim.b[target_buf].terminal_job_id then
             send_command(target_buf, command, OSC_commands[2], "\r", true)
@@ -1353,7 +1360,7 @@ function M.edit_selection()
             vim.api.nvim_buf_delete(bufnr, { force = true })
             vim.cmd('normal! gv"ap')
         end)
-    end, { height = height, width = width})
+    end, { float = { height = height, width = width } })
 end
 
 return M
