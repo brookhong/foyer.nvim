@@ -19,6 +19,20 @@ local capture = context.capture
 local mention = require('foyer.mention')
 local last_output_time = {}
 
+-- Terminals foyer started and that have not finished starting yet, with when
+-- they were started. A program reads nothing it is sent while it starts: it
+-- has not taken over the terminal, and taking it over commonly throws away
+-- what was typed ahead. So a send to one of these waits, see send_command().
+local starting = {}
+-- How long a starting terminal must be quiet after its first output -- its
+-- first screen drawn -- to count as started.
+local SETTLE_MS = 500
+-- How long a program may show nothing at all and still be taken as started:
+-- one that draws nothing until it is spoken to.
+local SILENT_MS = 3000
+-- How long a send waits for a terminal that never settles before going anyway.
+local START_TIMEOUT_MS = 15000
+
 
 function M.is_idle(buf, threshold_ms)
     threshold_ms = threshold_ms or 1000
@@ -136,15 +150,171 @@ local function as_paste(cmd)
     return '\x1b[200~' .. cmd .. '\x1b[201~'
 end
 
-local function send_command(term_bufnr, cmd, prefix, suffix, stopinsert)
-    vim.cmd('startinsert')
+-- Whether {buf} has finished starting: it has drawn its first screen and been
+-- quiet for SETTLE_MS since, or drawn nothing for SILENT_MS. "Drawn" means text
+-- in the buffer, not just a change to it: a new terminal reports its empty
+-- screen being laid out before the program has said a word. A terminal foyer
+-- did not start, or one that has started once, counts as started; one that is
+-- merely busy later on is the busy check's business, not this one's.
+local function started(buf)
+    local since = starting[buf]
+    if not since then return true end
+    local now = vim.uv.now()
+    local drawn = vim.iter(vim.api.nvim_buf_get_lines(buf, 0, -1, false)):any(function(l) return l:find('%S') end)
+    local t = last_output_time[buf]
+    if (drawn and t and now - t > SETTLE_MS)
+        or (not drawn and now - since > SILENT_MS)
+        or now - since > START_TIMEOUT_MS then
+        starting[buf] = nil
+        return true
+    end
+    return false
+end
+
+-- Terminals foyer started that have not yet been seen taking a prompt: until
+-- one has, a send there is typed without Enter, and the Enter goes only once
+-- the text has shown, see deliver_confirmed().
+local unconfirmed = {}
+-- How long a typed prompt may take to show on the terminal's screen.
+local ECHO_MS = 2000
+
+-- Declared here, defined further down with the other send_prefix lookups.
+local get_osc_commands
+
+local function term_label(buf)
+    local cmdline = vim.api.nvim_buf_get_name(buf):match('//%d+:(.*)$')
+    return cmdline and vim.fs.basename(cmdline:match('^%S+')) or 'the terminal'
+end
+
+local function screen(buf)
+    return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+end
+
+-- Call {fn} once {buf}'s screen has stopped changing for a moment, or after
+-- {max_ms} regardless: what the keys sent before it do to the screen -- a
+-- clear, a redraw -- is over by then, and not taken for what the next keys do.
+local function when_quiet(buf, max_ms, fn)
+    local since, last, still = vim.uv.now(), screen(buf), vim.uv.now()
+    local function check()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        local now, current = vim.uv.now(), screen(buf)
+        if current ~= last then last, still = current, now end
+        if now - still >= 300 or now - since >= max_ms then return fn() end
+        vim.defer_fn(check, 50)
+    end
+    vim.defer_fn(check, 50)
+end
+
+-- Send to a terminal that has not yet been seen taking a prompt, without
+-- pressing Enter on anything else. A program can come up on a screen of its
+-- own -- "Trust this workspace?", a login, an update -- and there the Enter
+-- that ends a prompt is the answer to a question the user never saw. So the
+-- text goes first, and the Enter only once the screen has changed for it: an
+-- input box shows what is typed into it, if only as "12 lines" for a long
+-- paste, while a question ignores it. Not shown, nothing more is sent: the
+-- question is the user's to answer. {done} is called with 'sent', 'unseen',
+-- or 'closed' for a terminal gone meanwhile.
+local function deliver_confirmed(term_bufnr, cmd, prefix, suffix, done)
+    local job = vim.b[term_bufnr].terminal_job_id
+    vim.fn.chansend(job, prefix)
+    when_quiet(term_bufnr, 1000, function()
+        local before = screen(term_bufnr)
+        vim.fn.chansend(job, as_paste(cmd))
+        local typed = vim.uv.now()
+        local function check()
+            if not vim.api.nvim_buf_is_valid(term_bufnr) then return done('closed') end
+            if screen(term_bufnr) ~= before then
+                unconfirmed[term_bufnr] = nil
+                vim.fn.chansend(job, suffix)
+                return done('sent')
+            end
+            if vim.uv.now() - typed >= ECHO_MS then return done('unseen') end
+            vim.defer_fn(check, 100)
+        end
+        vim.defer_fn(check, 100)
+    end)
+end
+
+-- Send one prompt now: {done} is called as for deliver_confirmed().
+local function deliver(term_bufnr, send, done)
+    if not vim.api.nvim_buf_is_valid(term_bufnr) then return done('closed') end
+    local job = vim.b[term_bufnr].terminal_job_id
+    if unconfirmed[term_bufnr] and not is_blank(send.cmd) then
+        -- Out of Terminal mode meanwhile: a key of the user's reaching the
+        -- terminal -- an arrow moving through a question -- would change the
+        -- screen, and be taken for the text arriving.
+        return deliver_confirmed(term_bufnr, send.cmd, send.prefix, send.suffix, done)
+    end
+    local shown = vim.api.nvim_get_current_buf() == term_bufnr
+    -- Terminal mode follows the output, so what the send brings back is in
+    -- view; only for the terminal in front of the user, though, as a wait may
+    -- have taken them somewhere else by now.
+    if shown then vim.cmd('startinsert') end
     vim.defer_fn(function()
-        vim.fn.chansend(vim.b[term_bufnr].terminal_job_id, prefix)
-        vim.fn.chansend(vim.b[term_bufnr].terminal_job_id, as_paste(cmd) .. suffix)
-        if stopinsert then
+        vim.fn.chansend(job, send.prefix)
+        vim.fn.chansend(job, as_paste(send.cmd) .. send.suffix)
+        if send.stopinsert and vim.api.nvim_get_current_buf() == term_bufnr then
             vim.cmd('stopinsert')
         end
-    end, 100)
+        done('sent')
+    end, shown and 100 or 0)
+end
+
+-- Sends not yet made, per terminal, in the order they were asked for: one at
+-- a time, since one being confirmed takes a moment.
+local pending = {}
+
+local function run_queue(term_bufnr)
+    local name = term_label(term_bufnr)
+    local since = vim.uv.now()
+    local said = false
+    local function next_send()
+        local queue = pending[term_bufnr]
+        if not queue or not vim.api.nvim_buf_is_valid(term_bufnr) then
+            pending[term_bufnr] = nil
+            return
+        end
+        if not started(term_bufnr) then
+            if not said then
+                said = true
+                vim.notify(('foyer.nvim: waiting for %s to start'):format(name), vim.log.levels.INFO)
+            end
+            return vim.defer_fn(next_send, 100)
+        end
+        if said and vim.uv.now() - since > START_TIMEOUT_MS then
+            said = false
+            vim.notify(('foyer.nvim: %s did not settle; sending anyway'):format(name), vim.log.levels.WARN)
+        end
+        local send = table.remove(queue, 1)
+        if not send then
+            pending[term_bufnr] = nil
+            return
+        end
+        deliver(term_bufnr, send, function(outcome)
+            if outcome == 'sent' then return next_send() end
+            -- Whatever was queued behind it would meet the same screen.
+            pending[term_bufnr] = nil
+            if outcome == 'unseen' then
+                vim.notify(('foyer.nvim: %s did not show the prompt, so it was not sent. It may be asking '
+                    .. 'something in its terminal: answer it there, then send again -- the prompt is in '
+                    .. 'history, one <Up> away.'):format(name), vim.log.levels.WARN)
+            end
+        end)
+    end
+    next_send()
+end
+
+-- Send {cmd} to {term_bufnr}, after {prefix} and with {suffix} -- the Enter,
+-- if any -- once the terminal has started, and in order with any other send
+-- still waiting for it.
+local function send_command(term_bufnr, cmd, prefix, suffix, stopinsert)
+    local send = { cmd = cmd, prefix = prefix, suffix = suffix, stopinsert = stopinsert }
+    if pending[term_bufnr] then
+        table.insert(pending[term_bufnr], send)
+        return
+    end
+    pending[term_bufnr] = { send }
+    run_queue(term_bufnr)
 end
 
 -- The command line a terminal was spawned with, which its buffer name records
@@ -184,7 +354,7 @@ end
 -- them to anything -- an agent that opens a menu on Ctrl-L swallows the prompt
 -- arriving behind it, while erasing the line on Ctrl-U as any shell does -- so
 -- a program may name the keys it understands, and `''` the ones it does not.
-local function get_osc_commands(term_bufnr)
+get_osc_commands = function(term_bufnr)
     local prefix = configured_prefix(term_bufnr) or default_prefix(term_bufnr)
     local clear_input = prefix[1] or ''
     return { clear_input, clear_input .. (prefix[2] or '') }
@@ -215,6 +385,9 @@ local function setup_terminal_keymaps(buf)
         on_detach = function()
             term_setup_done[buf] = nil
             last_output_time[buf] = nil
+            starting[buf] = nil
+            pending[buf] = nil
+            unconfirmed[buf] = nil
             prompts[buf] = nil
         end,
     })
@@ -606,6 +779,8 @@ local function open_term(root, term_key, launch_info)
     -- Attach now so is_idle() actually tracks output from the very first
     -- command instead of reporting a busy terminal as idle.
     setup_terminal_keymaps(term_bufs[bucket][term_key])
+    starting[term_bufs[bucket][term_key]] = vim.uv.now()
+    unconfirmed[term_bufs[bucket][term_key]] = true
     vim.cmd('close')
     -- TermOpen autocmds may queue a startinsert that only takes effect once we
     -- return to the main loop. The terminal is created in the background here,
@@ -635,9 +810,8 @@ function M.send_terminal_command(term_key, opts)
         if opts.auto_start then
             open_term(root, term_key, opts.launch_info)
             opts.auto_start = false
-            vim.defer_fn(function()
-                M.send_terminal_command(term_key, opts)
-            end, 200)
+            -- Straight away: the send itself waits for the program to start.
+            M.send_terminal_command(term_key, opts)
         else
             vim.notify("Terminal '" .. term_key .. "' not found", vim.log.levels.ERROR)
         end

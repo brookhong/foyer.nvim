@@ -223,7 +223,7 @@ end, { desc = 'Edit selection in floating window' })
 | `interactive` | Force the command buffer open even when `command` is set; `command` then seeds the buffer. |
 | `selection` | Text appended to the prompt as it is sent. Set for you when the send starts in visual mode, see below. |
 | `win_type` | `'sidebar'` for a right-hand split, otherwise a floating window. Ignored for a `scope = 'global'` terminal, whose prompt takes the current window. |
-| `auto_start` | Spawn the terminal if it does not exist yet. |
+| `auto_start` | Spawn the terminal if it does not exist yet. The send waits for it to start, see below. |
 | `launch_info` | Override the captured context. Passed to the `commands` resolver and published for the agent. |
 
 `terminal_command` also takes `key`, the `commands` key to drive instead of
@@ -434,6 +434,22 @@ your colorscheme.
 
 ## Notes and limitations
 
+- A terminal foyer has just started gets nothing until it has: a program
+  starting up has not taken over its terminal yet, and taking it over commonly
+  throws away what was typed ahead. So a send to it — an `auto_start` command,
+  or a prompt written faster than the agent came up — is held, with a notice,
+  until the program has drawn its first screen and been quiet for half a
+  second, and then sent. One that draws nothing is taken as started after three
+  seconds; one that never settles is sent to after fifteen, with a warning.
+  Prompts open at once either way, so the writing does not wait.
+- Its first prompt is also typed without Enter, and the Enter goes only once the
+  text has shown on its screen. A program can come up on a question of its own
+  — whether to trust the workspace, a login, an update — and there the Enter
+  that ends a prompt would be the answer, given for you. So if the text has not
+  shown within two seconds, foyer sends nothing more and says so: the question
+  is yours to answer in the terminal, and the prompt is in history, one `<Up>`
+  away, to send again afterwards. While it waits, foyer keeps out of terminal
+  mode, so no key of yours reaches the question by accident.
 - A send containing a newline — a multi-line draft, or any prompt with a
   `selection` under it — is wrapped in bracketed paste, so the
   receiver inserts the newline instead of reading it as Enter and running the

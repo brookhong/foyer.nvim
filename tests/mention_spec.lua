@@ -5,7 +5,7 @@ local H = dofile('tests/helpers.lua')
 -- unsaved change on line 11.
 local child = H.child([[
     local foyer = require('foyer')
-    local quiet = { 'sh', '-c "stty -echo; cat >/dev/null"' }
+    local quiet = { 'sh', '-c "echo up; cat >/dev/null"' }
     foyer.setup({ commands = {
         q = quiet,
         G = { quiet[1], quiet[2], cwd = vim.env.HOME, scope = 'global' },

@@ -15,11 +15,13 @@ vim.o.report = 10000
 vim.o.swapfile = false
 vim.opt.shortmess:append('A')
 
--- Terminals for the specs to drive. `quiet` echoes nothing, so it is idle
--- whenever the spec wants it to be; `noisy` never stops printing, so it is
--- always busy.
-H.quiet = { 'sh', [[-c "stty -echo; cat >/dev/null"]] }
-H.noisy = { 'sh', [[-c "while :; do echo x; sleep 0.1; done"]] }
+-- Terminals for the specs to drive. `quiet` draws a prompt and then shows
+-- only what is typed into it, as an input box does, so it starts at once and
+-- takes a prompt as a real program would; `noisy` starts as quickly, then
+-- never stops printing from a second on, so it is busy for good -- the way an
+-- agent is busy, after it has come up.
+H.quiet = { 'sh', [[-c "printf '$ '; cat >/dev/null"]] }
+H.noisy = { 'sh', [[-c "echo up; sleep 1; while :; do echo x; sleep 0.1; done"]] }
 
 function H.foyer(opts)
     local foyer = require('foyer')
@@ -54,10 +56,12 @@ vim.fn.chansend = function(id, data)
 end
 function H.sent() return sent end
 function H.sent_clear() sent = {} end
--- The last chunk that carried text rather than a lone control key.
+-- The last chunk that carried text rather than a lone control key, with what
+-- followed it: the Enter goes on its own when a terminal's first prompt is
+-- confirmed before it is sent.
 function H.last_text()
     for i = #sent, 1, -1 do
-        if #sent[i] > 2 then return sent[i] end
+        if #sent[i] > 2 then return table.concat(sent, '', i) end
     end
 end
 
@@ -79,12 +83,27 @@ function H.state()
 end
 
 -- Type {lines} into the prompt in front of the user and send it.
-function H.send(lines)
+-- It is waited for until text reaches a terminal: a send to a terminal still
+-- starting is held until it has. {nothing} says none is expected, and waits a
+-- moment instead.
+function H.send(lines, nothing)
     if type(lines) == 'string' then lines = { lines } end
     vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
     vim.cmd('stopinsert')
+    local before = #sent
     H.feed('<CR>')
-    H.wait(400)
+    if nothing then return H.wait(400) end
+    vim.wait(5000, function()
+        for i = before + 1, #sent do
+            if #sent[i] > 2 then return true end
+        end
+    end, 20)
+    -- And whatever comes after it, the Enter of a confirmed first send.
+    local count, still = #sent, vim.uv.now()
+    vim.wait(3000, function()
+        if #sent ~= count then count, still = #sent, vim.uv.now() end
+        return vim.uv.now() - still > 400
+    end, 20)
 end
 
 -- Back to a single window showing {buf}, out of insert mode, no floats.

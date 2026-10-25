@@ -44,7 +44,7 @@ end)
 H.test('a blank prompt sends nothing', function()
     H.reset(file)
     prompt()
-    H.send({ '  ', '' })
+    H.send({ '  ', '' }, true)
     H.eq(nil, H.last_text(), 'sent')
 end)
 
@@ -79,9 +79,9 @@ end)
 
 H.test('a busy terminal shows itself; <C-o> reaches a working prompt', function()
     H.reset(file)
-    -- Spawn it and let it start printing.
+    -- Spawn it and let it come up and start printing.
     foyer.terminal_command({ key = 'n', command = ':' })
-    H.wait(500)
+    H.wait(1500)
     H.reset(file)
     H.press(function() foyer.terminal_command({ key = 'n' }) end)
     H.ok(H.state().terminal, 'busy: the terminal is shown')

@@ -4,14 +4,15 @@ os.remove(shada)
 
 -- Two earlier sessions, to leave something in 'shada'. The older one changed
 -- layout.lua at line 20 (undone, so the file is untouched). The newer one
--- opened every spec, LICENSE -- last seen at line 9 -- and README.md: more
--- than ten files, all more recent than layout.lua. A session apiece, since
+-- opened eight specs, LICENSE -- last seen at line 9 -- and README.md: ten
+-- files, all more recent than layout.lua. A session apiece, since
 -- files used within the same second come back in no particular order.
 local older = H.child([[vim.cmd('edit lua/foyer/layout.lua | normal! 20G"_xu')]], shada)
 older.quit()
 vim.wait(1100)
 local newer = H.child([[
-    for _, spec in ipairs(vim.fn.glob('tests/*_spec.lua', false, true)) do
+    -- Eight, so that with these and README.md open, LICENSE is the tenth.
+    for _, spec in ipairs(vim.list_slice(vim.fn.glob('tests/*_spec.lua', false, true), 1, 8)) do
         vim.cmd.edit(spec)
     end
     vim.cmd('edit LICENSE | normal! 9G')
@@ -24,7 +25,7 @@ local child = H.child([[
     -- -u NONE leaves detection off; the point here is that it runs.
     vim.cmd('filetype on')
     local foyer = require('foyer')
-    foyer.setup({ commands = { q = { 'sh', '-c "stty -echo; cat >/dev/null"' } } })
+    foyer.setup({ commands = { q = { 'sh', '-c "echo up; cat >/dev/null"' } } })
     foyer.is_idle = function() return true end
     vim.cmd('edit README.md | normal! 5G')
     foyer.terminal_command({ key = 'q' })
