@@ -407,7 +407,9 @@ local function attach_history(bufnr, term_buf)
 end
 
 -- {opts.term} is the terminal the prompt is for: its history is the one
--- walked and the one the sent prompt joins.
+-- walked and the one the sent prompt joins. {opts.prompt_title} is what the
+-- prompt's frame says once a send has gone, with nothing attached to it any
+-- more.
 local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
     opts = opts or {}
     init_command_buf_shared(bufnr, win_id, lines, function()
@@ -422,10 +424,29 @@ local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
             -- way the caller named it if it did.
             set_window_title(win_id, opts.term_title or get_term_name(new_buf))
             init_term_buf(new_buf, win_id, bufnr)
+            -- What was sent is gone, so the prompt <C-o> comes back to is
+            -- ready for the next one: empty, and carrying no selection, which
+            -- would otherwise ride along with a follow-up unseen. History has
+            -- the text, and is read again so that <Up> finds it.
+            vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
+            vim.b[bufnr].foyer_selection = nil
+            if opts.prompt_title then vim.b[bufnr].foyer_title = opts.prompt_title end
+            attach_history(bufnr, opts.term)
         else
             dismiss(win_id, bufnr)
         end
     end)
+
+    -- The frame belongs to the window, which a terminal shares with the
+    -- prompt, so coming back to the prompt puts its own title back -- the
+    -- one it has now, not the one it opened with.
+    vim.api.nvim_create_autocmd('BufEnter', {
+        buffer = bufnr,
+        callback = function()
+            local title = vim.b[bufnr].foyer_title
+            if title then set_window_title(vim.api.nvim_get_current_win(), title) end
+        end,
+    })
 
     -- A buffer with something to say already -- a lifted command line, a seeded
     -- command, a prompt that is going to carry a selection -- means the writing
@@ -638,7 +659,8 @@ function M.send_terminal_command(term_key, opts)
         -- the two apart before anything is sent.
         local place = entry_is_global(entry) and 'global' or vim.fs.basename(root)
         local term = entry_name(entry) .. ' · ' .. place
-        local title = 'Ctrl-s to send command to 『' .. term .. ' 』'
+        local bare_title = 'Ctrl-s to send command to 『' .. term .. ' 』'
+        local title = bare_title
         -- The ref never appears in the buffer, so the frame is the only place
         -- the user can see what the send is going to carry.
         if opts.selection then title = title .. ' + ' .. opts.selection end
@@ -663,6 +685,7 @@ function M.send_terminal_command(term_key, opts)
             -- closure that set the window up.
             if reused then
                 vim.b[bufnr].foyer_selection = selection_appendix(opts)
+                vim.b[bufnr].foyer_title = title
                 set_window_title(win_id, title)
                 -- A draft in there is the user's and stays. An empty buffer has
                 -- nothing to lose, so a seeded command still gets its chance
@@ -686,7 +709,7 @@ function M.send_terminal_command(term_key, opts)
                         send_command(target_buf, cmd, OSC_commands[2], "\r", true)
                     end
                     return target_buf
-                end, { start_insert = start_insert, term_title = term, term = target_buf })
+                end, { start_insert = start_insert, term_title = term, term = target_buf, prompt_title = bare_title })
                 attach_mention(bufnr)
             end
             if not M.is_idle(target_buf, 2000) then
@@ -701,6 +724,8 @@ function M.send_terminal_command(term_key, opts)
                 -- It is set up in Normal mode: insert would land in the
                 -- terminal that is about to take the window.
                 init_prompt(false)
+                -- The selection was dropped, so the frame must not offer it.
+                vim.b[bufnr].foyer_title = bare_title
                 vim.api.nvim_set_current_buf(target_buf)
                 -- After the switch: the frame belongs to the buffer shown.
                 set_window_title(win_id, term)
@@ -708,6 +733,7 @@ function M.send_terminal_command(term_key, opts)
                 return
             end
             vim.b[bufnr].foyer_selection = selection_appendix(opts)
+            vim.b[bufnr].foyer_title = title
             init_prompt(opts.selection ~= nil or not is_blank(command or ""))
         end, { term = target_buf })
     else

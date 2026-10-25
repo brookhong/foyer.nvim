@@ -367,6 +367,11 @@ mode, where <Up> walks history.
     <C-c>             n    Close the window, discarding the draft
     <C-x><C-x>        n    Toggle previous size / full screen
 
+Once a prompt is sent, the terminal takes its window, and <C-o> from there
+comes back to the prompt emptied, with the selection it carried gone: a
+follow-up written there goes alone. What was sent is in history, one <Up>
+away.
+
 History is stored per terminal name in `stdpath('cache')/foyer.json` and
 survives restarts. Typing text before walking the history filters it to
 entries containing that text, and highlights the match with |hl-FoyerMatch|.

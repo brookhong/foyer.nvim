@@ -103,4 +103,49 @@ H.test('a sidebar is reused rather than stacked', function()
     H.eq(first.win, H.state().win, 'the same window')
 end)
 
+H.test('a sidebar taken over for a file is left to it, and its successor kept', function()
+    H.reset(file)
+    local function sidebar() H.press(function() foyer.terminal_command({ key = 'q', win_type = 'sidebar' }) end) end
+    sidebar()
+    local taken = H.state().win
+    vim.cmd('stopinsert | edit LICENSE')
+    vim.cmd('wincmd p')
+    sidebar()
+    local successor = H.state().win
+    H.ok(successor ~= taken, 'a new sidebar rather than the user\'s window')
+    H.ok(vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(taken)):find('LICENSE$'), 'LICENSE left where it was')
+    vim.cmd('stopinsert')
+    vim.api.nvim_win_close(taken, true)
+    vim.cmd('wincmd p')
+    sidebar()
+    H.eq(successor, H.state().win, 'the successor is still the sidebar')
+    H.eq(2, H.state().wins, 'no third window')
+end)
+
+for _, win_type in ipairs({ 'float', 'sidebar' }) do
+    H.test(win_type .. ': after a send, <C-o> finds the prompt empty and the selection gone', function()
+        H.reset(file)
+        -- A selection, so there is something that must not ride along again.
+        H.press(function() foyer.terminal_command({ key = 'q', win_type = win_type }) end, '3GV')
+        local prompt_buf = H.state().buf
+        H.ok(H.state().title:find('+ README.md:3', 1, true), 'the selection advertised: ' .. H.state().title)
+        H.send('first question')
+        H.ok(H.last_text():find('Selected in my editor', 1, true), 'the first send carries it')
+
+        vim.cmd('stopinsert')
+        H.feed('<C-o>')
+        local s = H.state()
+        H.eq(prompt_buf, s.buf, 'back in the same prompt')
+        H.eq({ '' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), 'empty')
+        H.ok(not s.title:find('README.md:3', 1, true), 'the frame no longer offers it: ' .. s.title)
+        H.ok(s.title:find('Ctrl-s to send command', 1, true), 'the prompt\'s own frame: ' .. s.title)
+
+        H.feed('<Up>')
+        H.eq({ 'first question' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), '<Up> recalls what was sent')
+
+        H.send('a follow-up')
+        H.eq('a follow-up\r', H.last_text(), 'sent alone')
+    end)
+end
+
 H.finish()

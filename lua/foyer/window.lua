@@ -107,6 +107,16 @@ local function create_window(type, title, on_ready, opts)
     -- a float is transient and may simply be opened again.
     local reuse = type == "sidebar" and term and active_cmd_wins[term] or nil
     if reuse and not vim.api.nvim_win_is_valid(reuse) then reuse = nil end
+    -- Still the sidebar only while it shows a prompt or a terminal of ours. A
+    -- file the user opened in it, or kept it for with :only, makes it theirs:
+    -- treating that file as the prompt would hang a prompt's mappings on it.
+    if reuse then
+        local shown = vim.api.nvim_win_get_buf(reuse)
+        if not (vim.b[shown].foyer_prompt or vim.bo[shown].buftype == 'terminal') then
+            active_cmd_wins[term] = nil
+            reuse = nil
+        end
+    end
 
     if reuse and vim.bo[vim.api.nvim_win_get_buf(reuse)].buftype ~= 'terminal' then
         vim.api.nvim_set_current_win(reuse)
@@ -176,7 +186,11 @@ local function create_window(type, title, on_ready, opts)
         vim.api.nvim_create_autocmd('WinClosed', {
             pattern = tostring(win_id),
             once = true,
-            callback = function() active_cmd_wins[term] = nil end,
+            -- Only while it is still the sidebar: one the user took over has
+            -- been replaced, and closing it must not forget its successor.
+            callback = function()
+                if active_cmd_wins[term] == win_id then active_cmd_wins[term] = nil end
+            end,
         })
     end
 end

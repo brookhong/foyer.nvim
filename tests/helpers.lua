@@ -9,6 +9,11 @@ vim.opt.rtp:prepend(root)
 vim.cmd.cd(root)
 -- No "3 lines yanked" in the output: edit_selection() goes through a register.
 vim.o.report = 10000
+-- No swap files: a spec edits the repository's own files, which the user may
+-- have open -- an existing swap file would stop it at the ATTENTION prompt,
+-- and one of its own, left by a run cut short, would stop the next run.
+vim.o.swapfile = false
+vim.opt.shortmess:append('A')
 
 -- Terminals for the specs to drive. `quiet` echoes nothing, so it is idle
 -- whenever the spec wants it to be; `noisy` never stops printing, so it is
@@ -105,7 +110,9 @@ local results = { pass = 0, fail = 0 }
 -- {shada} is the ShaDa file it reads and writes, for a spec about what one
 -- session leaves the next; without it there is none.
 function H.child(setup, shada)
-    local cmd = { 'nvim', '--embed', '--headless', '-u', 'NONE', '-i', shada or 'NONE' }
+    -- -n and shortmess+=A: no swap files, for the reason given at the top.
+    local cmd = { 'nvim', '--embed', '--headless', '-u', 'NONE', '-n', '--cmd', 'set shortmess+=A',
+        '-i', shada or 'NONE' }
     if not shada then table.insert(cmd, '--clean') end
     local chan = vim.fn.jobstart(cmd, { rpc = true, cwd = root })
     local child = {}
@@ -121,7 +128,11 @@ function H.child(setup, shada)
     function child.lines()
         return child.lua('return vim.api.nvim_buf_get_lines(0, 0, -1, false)')
     end
-    function child.stop() vim.fn.jobstop(chan) end
+    function child.stop()
+        pcall(vim.rpcnotify, chan, 'nvim_command', 'qa!')
+        vim.fn.jobwait({ chan }, 2000)
+        vim.fn.jobstop(chan)
+    end
     -- Quit the way a user does, so it writes its ShaDa, and wait for it.
     function child.quit()
         pcall(vim.rpcrequest, chan, 'nvim_command', 'qa!')
@@ -141,6 +152,8 @@ function H.test(name, fn)
         results.fail = results.fail + 1
         io.stdout:write('  FAIL  ' .. name .. '\n' .. tostring(err):gsub('^', '        '):gsub('\n', '\n        ') .. '\n')
     end
+    -- Now, not at the end: a spec that hangs still shows how far it got.
+    io.stdout:flush()
 end
 
 local function show(v)

@@ -370,6 +370,11 @@ where `<Up>` walks the history.
 History is filtered by what you have typed: with a draft in the buffer, only the
 entries containing it are walked, and the match is highlighted.
 
+Once a prompt is sent, the terminal takes its window, and `<C-o>` from there
+comes back to the prompt emptied, with the selection it carried gone: a
+follow-up written there goes alone. What was sent is in history, one `<Up>`
+away.
+
 #### `@` mentions
 
 In the prompt for one of your `commands`, `@` at the start of a word lists the

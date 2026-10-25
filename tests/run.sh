@@ -15,7 +15,7 @@ trap 'rm -rf "$XDG_CACHE_HOME"' EXIT
 status=0
 for spec in "$@"; do
     echo "$spec"
-    out=$(nvim --headless --clean -u NONE -l "$spec" 2>&1)
+    out=$(nvim --headless --clean -u NONE -n -l "$spec" 2>&1)
     code=$?
     printf '%s\n' "$out" | tr '\r' '\n' | grep -av '^$'
     [ "$code" -eq 0 ] || status=1
