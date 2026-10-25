@@ -113,6 +113,12 @@ title shows `src/parser.c:118-131` before you send, so you always know what's
 going along. If you type nothing, nothing is sent: a selection alone asks the
 agent nothing.
 
+Already writing the prompt when you realise it should point at code in another
+file? Type `@`: the open files pop up, along with the ones you used recently,
+each at the line you last changed.
+`<CR>` drops in `@src/parser.c:120`; `<C-l>` drops in the whole block, the
+same as if you'd selected those lines before you started.
+
 ---
 
 ## Scenario 3: "Fix this", and the agent knows what *this* is

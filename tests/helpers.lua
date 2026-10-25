@@ -97,6 +97,41 @@ end
 
 local results = { pass = 0, fail = 0 }
 
+-- A second Neovim, driven over RPC, for what only a real main loop does: keys
+-- typed in Insert mode, completion menus, callbacks scheduled from mappings.
+-- feedkeys() cannot drive those from a running script. It shares the cache
+-- directory tests/run.sh set up, and starts in the repository.
+--
+-- {shada} is the ShaDa file it reads and writes, for a spec about what one
+-- session leaves the next; without it there is none.
+function H.child(setup, shada)
+    local cmd = { 'nvim', '--embed', '--headless', '-u', 'NONE', '-i', shada or 'NONE' }
+    if not shada then table.insert(cmd, '--clean') end
+    local chan = vim.fn.jobstart(cmd, { rpc = true, cwd = root })
+    local child = {}
+    -- Run {code} there, with {...} as its arguments; what it returns comes back.
+    function child.lua(code, ...)
+        return vim.rpcrequest(chan, 'nvim_exec_lua', code, { ... })
+    end
+    -- Type {keys} there, and give it a moment to act on them.
+    function child.type(keys, ms)
+        vim.rpcrequest(chan, 'nvim_input', keys)
+        vim.wait(ms or 150)
+    end
+    function child.lines()
+        return child.lua('return vim.api.nvim_buf_get_lines(0, 0, -1, false)')
+    end
+    function child.stop() vim.fn.jobstop(chan) end
+    -- Quit the way a user does, so it writes its ShaDa, and wait for it.
+    function child.quit()
+        pcall(vim.rpcrequest, chan, 'nvim_command', 'qa!')
+        vim.fn.jobwait({ chan }, 5000)
+    end
+    child.lua("vim.opt.rtp:prepend('.'); vim.o.report = 10000")
+    if setup then child.lua(setup) end
+    return child
+end
+
 function H.test(name, fn)
     local ok, err = xpcall(fn, debug.traceback)
     if ok then

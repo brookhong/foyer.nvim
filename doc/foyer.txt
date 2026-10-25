@@ -93,6 +93,10 @@ selection_max_lines ~
     alone beyond, see |foyer-opts|. `0` never sends the lines. Defaults to
     `40`.
 
+mention ~
+    Whether `@` in a terminal's prompt lists the open files to mention, see
+    |foyer-mention|. Defaults to `true`.
+
                                                            *foyer.send_prefix*
 send_prefix ~
     Keys that clear the receiver's input line and its screen, keyed by the
@@ -355,6 +359,8 @@ mode, where <Up> walks history.
     <C-n>, <Down>     n    Next history entry
     <C-p>             i    Previous history entry
     <C-n>             i    Next history entry
+                           (with a menu open, <C-p> and <C-n> move in it)
+    @                 i    Mention an open file, see |foyer-mention|
     <C-x><C-p>        i    Ordinary insert-mode completion
     <C-x><C-n>        i    Ordinary insert-mode completion
     <Esc>             n    Close the window if the buffer is empty
@@ -364,6 +370,29 @@ mode, where <Up> walks history.
 History is stored per terminal name in `stdpath('cache')/foyer.json` and
 survives restarts. Typing text before walking the history filters it to
 entries containing that text, and highlights the match with |hl-FoyerMatch|.
+
+                                                               *foyer-mention*
+In the prompt for one of your `commands`, `@` at the start of a word lists the
+open files: the one you opened the prompt from first, at your cursor line,
+then the rest by when you last used them, each at its last change, then the
+files you used recently (|v:oldfiles|) in the same way. The menu shows ten at
+a time; typing after the `@` searches all of them by name, so a file further
+down is found as you type. While it is open:
+
+    <CR>       Put in `@src/parser.c:120`: the path as the agent resolves it,
+               from the directory it was started in, or absolute for a
+               `scope = 'global'` one.
+    <C-l>      Put in the selection block a Visual selection sends, see
+               |foyer-opts|: the file's last Visual selection if it holds the
+               line, else the line alone.
+    <Esc>      Leave the `@` as typed.
+
+An `@` inside a word (`user@host`) is just an `@`, and so is one with no open
+file to offer. The prompt of |foyer.edit_input()| has no mentions. A recent
+file is read only when it comes into the menu, without its autocommands -- no
+filetype plugin or language server starts for it -- and let go again when the
+menu closes. A block put in with <C-l> is left out of history, which keeps the
+words around it.
 
 |foyer.edit_selection()|'s window is text you are editing rather than a
 prompt: it keeps <CR>, <C-s>, <Esc>, <C-c> and <C-x><C-x>, has no history, and

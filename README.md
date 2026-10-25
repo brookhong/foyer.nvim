@@ -99,6 +99,10 @@ require('foyer').setup({
     -- sent as its location alone. 0 never sends the lines. Defaults to 40.
     selection_max_lines = 40,
 
+    -- `@` in a terminal's prompt lists the open files to mention. Defaults to
+    -- true.
+    mention = true,
+
     -- Keys that clear the receiver's input line and its screen, keyed by the
     -- program receiving them. Defaults to { Ctrl-U, Ctrl-L }. A program that
     -- binds either key to something of its own needs its own -- see below.
@@ -356,7 +360,8 @@ where `<Up>` walks the history.
 | `<C-s>` | i | Send the buffer to the terminal |
 | `<C-p>` / `<Up>` | n | Previous history entry |
 | `<C-n>` / `<Down>` | n | Next history entry |
-| `<C-p>` / `<C-n>` | i | Previous / next history entry |
+| `<C-p>` / `<C-n>` | i | Previous / next history entry; with a menu open, move through it |
+| `@` | i | Mention an open file, see below |
 | `<C-x><C-p>` / `<C-x><C-n>` | i | Ordinary insert-mode completion |
 | `<Esc>` | n | Close the window if the buffer is empty |
 | `<C-c>` | n | Close the window, discarding the draft |
@@ -364,6 +369,28 @@ where `<Up>` walks the history.
 
 History is filtered by what you have typed: with a draft in the buffer, only the
 entries containing it are walked, and the match is highlighted.
+
+#### `@` mentions
+
+In the prompt for one of your `commands`, `@` at the start of a word lists the
+open files: the one you opened the prompt from first, at your cursor line, then
+the rest by when you last used them, each at its last change, then the files
+you used recently (`v:oldfiles`) in the same way. The menu shows ten at a time;
+typing after the `@` searches all of them by name, so a file further down is
+found as you type. While it is open:
+
+| Key | Puts in |
+| --- | --- |
+| `<CR>` | `@src/parser.c:120` — the path as the agent resolves it: from the directory it was started in, or absolute for a `scope = 'global'` one |
+| `<C-l>` | The selection block a visual selection sends — label, then the lines as your buffer has them. The file's last visual selection if it holds that line, else the line alone |
+| `<Esc>` | Nothing: the `@` stays as typed |
+
+An `@` inside a word (`user@host`) is just an `@`, and so is one with no open
+file to offer. The prompt for `edit_input()` has no mentions: it is a shell's
+command line. A recent file is read only when it comes into the menu, without
+its autocommands — no filetype plugin or language server starts for it — and
+let go again when the menu closes. A block put in with `<C-l>` is left out of
+history, which keeps the words around it.
 
 `edit_selection()`'s window is text you are editing rather than a prompt: it
 keeps `<CR>`, `<C-s>`, `<Esc>`, `<C-c>` and `<C-x><C-x>`, has no history, and

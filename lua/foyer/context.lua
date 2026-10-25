@@ -29,28 +29,37 @@ local function relative_to(root, path)
     return path:sub(#prefix + 1)
 end
 
--- What the user is looking at, in the conventional launch_info shape.
-local function launch_info()
+-- The file {buf} holds, named the way launch_info names it: `current_file`
+-- relative to `project_root`, or absolute with no `project_root`. Nil for a
+-- buffer with no file worth reporting.
+local function file_info(buf)
     -- A terminal or scratch buffer has no file worth reporting: its name would
-    -- be a term:// URI. The empty table publishes nothing, so the last real
-    -- context stays in place.
-    local name = vim.api.nvim_buf_get_name(0)
-    if vim.bo.buftype ~= '' or name == '' then return {} end
+    -- be a term:// URI.
+    local name = vim.api.nvim_buf_get_name(buf)
+    if vim.bo[buf].buftype ~= '' or name == '' then return nil end
     -- The buffer name rather than expand('%:p'): that one leaves a symlinked
     -- path unresolved while vim.fs.root() resolves it, so the two would never
     -- match. normalize() then settles the separators, which disagree on
     -- Windows.
     local path = vim.fs.normalize(name)
-    local root = project_root(nil)
+    local root = project_root(nil, buf)
     root = root and vim.fs.normalize(root)
     local relative = root and relative_to(root, path)
-    local info = {
+    return {
         -- The pair travels together or not at all: a root the file cannot be
         -- named against is a root nobody can resolve the name with.
         project_root = relative and root or nil,
         current_file = relative or path,
-        current_line = vim.fn.line('.'),
     }
+end
+
+-- What the user is looking at, in the conventional launch_info shape.
+local function launch_info()
+    -- The empty table publishes nothing, so the last real context stays in
+    -- place.
+    local info = file_info(0)
+    if not info then return {} end
+    info.current_line = vim.fn.line('.')
     if in_visual() then
         -- line('v') is the anchor, which sits below the cursor in a selection
         -- dragged upward; a reversed range is no use to whoever reads it.
@@ -59,6 +68,24 @@ local function launch_info()
         info.end_line = math.max(anchor, cursor)
     end
     return info
+end
+
+-- Lines {first}..{last} of {buf}, ready for selection_block(): as the buffer
+-- has them now, unsaved edits and all, since that is what the user is pointing
+-- at, whatever the disk says. Nil for a buffer with no file.
+local function buffer_selection(buf, first, last)
+    local info = file_info(buf)
+    if not info then return nil end
+    info.start_line, info.end_line = first, last
+    return {
+        info = info,
+        lines = vim.api.nvim_buf_get_lines(buf, first - 1, last, false),
+        -- A buffer loaded without autocommands has no 'filetype' set: ask
+        -- what it would be, rather than set it and start its plugins.
+        filetype = vim.bo[buf].filetype ~= '' and vim.bo[buf].filetype
+            or vim.filetype.match({ buf = buf }) or '',
+        modified = vim.bo[buf].modified,
+    }
 end
 
 -- The selected range in the project's own terms, `src/main.c:30-36`: short
@@ -167,6 +194,29 @@ vim.api.nvim_create_autocmd('VimLeavePre', {
 -- those may be renamed for the terminal they end up going to.
 local captured_selection = setmetatable({}, { __mode = 'k' })
 
+-- {text} with every selection block taken out: the label line, and the fence
+-- below it when there is one. For history, which keeps what the user wrote
+-- rather than code that will not be true next time. Blank lines a block
+-- leaves behind are folded, and the ends trimmed.
+local function strip_selections(text)
+    local out, fence = {}, nil
+    local lines = vim.split(text, '\n', { plain = true })
+    local i = 1
+    while i <= #lines do
+        local line = lines[i]
+        if fence then
+            if line == fence then fence = nil end
+        elseif line:find('^Selected in my editor: ') then
+            fence = (lines[i + 1] or ''):match('^(```+)')
+            if fence then i = i + 1 end
+        elseif not (line == '' and out[#out] == '') then
+            table.insert(out, line)
+        end
+        i = i + 1
+    end
+    return vim.trim(table.concat(out, '\n'))
+end
+
 -- What a send appends below the prompt: the captured selection with its text,
 -- or a `selection` the caller gave, which is theirs and goes as given.
 local function selection_appendix(opts)
@@ -185,15 +235,8 @@ local function capture(opts)
         if opts.selection == nil then
             opts.selection = selection_ref(opts.launch_info)
             if opts.selection then
-                -- The lines as the buffer has them now, unsaved edits and all:
-                -- that is what the user selected, whatever the disk says.
                 local info = opts.launch_info
-                captured_selection[opts] = {
-                    info = info,
-                    lines = vim.api.nvim_buf_get_lines(0, info.start_line - 1, info.end_line, false),
-                    filetype = vim.bo.filetype,
-                    modified = vim.bo.modified,
-                }
+                captured_selection[opts] = buffer_selection(0, info.start_line, info.end_line)
             end
         end
         -- The window opened next is no place to still be in Visual mode.
@@ -202,6 +245,10 @@ local function capture(opts)
 end
 
 M.launch_info = launch_info
+M.relative_to = relative_to
+M.file_info = file_info
+M.strip_selections = strip_selections
+M.buffer_selection = buffer_selection
 M.selection_ref = selection_ref
 M.selection_block = selection_block
 M.term_context_path = term_context_path

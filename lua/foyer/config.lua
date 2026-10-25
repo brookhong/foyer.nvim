@@ -4,13 +4,14 @@ local M = {}
 
 local config = {
     commands = {}, root_markers = nil, bracketed_paste = true, send_prefix = {},
-    picker_delay = 500, selection_max_lines = 40,
+    picker_delay = 500, selection_max_lines = 40, mention = true,
 }
 
 -- Directory markers locating the project root that scopes terminals.
-local function project_root(fallback)
+-- {buf} is the buffer to look from, the current one by default.
+local function project_root(fallback, buf)
     local markers = config.root_markers or vim.g.root_markers or { '.git' }
-    return vim.fs.root(0, markers) or fallback
+    return vim.fs.root(buf or 0, markers) or fallback
 end
 
 local function setup(opts)

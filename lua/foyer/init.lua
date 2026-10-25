@@ -16,6 +16,7 @@ local publish = context.publish
 local export_context = context.export_context
 local selection_appendix = context.selection_appendix
 local capture = context.capture
+local mention = require('foyer.mention')
 local last_output_time = {}
 
 
@@ -81,6 +82,9 @@ local function get_term_name(bufnr)
 end
 
 local function log_command(cmd, term_bufnr)
+    -- What the user wrote, not the code a mention put in with it: that would
+    -- bloat every entry and be out of date by the time it is recalled.
+    cmd = context.strip_selections(cmd)
     if is_blank(cmd) then return end
 
     local term_name = get_term_name(term_bufnr)
@@ -385,8 +389,19 @@ local function attach_history(bufnr, term_buf)
     vim.keymap.set('n', '<C-p>', function() navigate_history(1) end, {silent = true, buffer = bufnr})
     vim.keymap.set('n', '<Down>', function() navigate_history(-1) end, {silent = true, buffer = bufnr})
     vim.keymap.set('n', '<C-n>', function() navigate_history(-1) end, {silent = true, buffer = bufnr})
-    vim.keymap.set('i', '<C-p>', function() navigate_history(1) end, {silent = true, buffer = bufnr})
-    vim.keymap.set('i', '<C-n>', function() navigate_history(-1) end, {silent = true, buffer = bufnr})
+    -- With a menu open -- a mention's, or ordinary completion -- the keys walk
+    -- the menu, as they do anywhere else.
+    local function in_insert(delta, key)
+        return function()
+            if vim.fn.pumvisible() == 1 then
+                vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), 'n', false)
+            else
+                navigate_history(delta)
+            end
+        end
+    end
+    vim.keymap.set('i', '<C-p>', in_insert(1, '<C-p>'), {silent = true, buffer = bufnr})
+    vim.keymap.set('i', '<C-n>', in_insert(-1, '<C-n>'), {silent = true, buffer = bufnr})
     vim.keymap.set('i', '<C-x><C-p>', '<C-p>', {silent = true, buffer = bufnr})
     vim.keymap.set('i', '<C-x><C-n>', '<C-n>', {silent = true, buffer = bufnr})
 end
@@ -581,6 +596,10 @@ end
 function M.send_terminal_command(term_key, opts)
     opts = opts or {}
     capture(opts)
+    -- Where the user is, before any window of ours opens: the file an @
+    -- mention offers first, at the line the cursor is on.
+    local source = vim.api.nvim_get_current_buf()
+    local source_line = vim.api.nvim_win_get_cursor(0)[1]
     local root = project_root(vim.env.HOME)
     local entry = resolve_command(term_key, root, opts.launch_info)
     local bucket = entry_bucket(entry, root)
@@ -627,6 +646,17 @@ function M.send_terminal_command(term_key, opts)
         -- the code on screen, so its prompt takes the window you are in, as a
         -- page you turn to, instead of a float or a sidebar beside your code.
         local win_type = entry_is_global(entry) and 'current' or opts.win_type
+        -- @ mentions name files the way this agent resolves them: from the
+        -- directory it was started in, or absolutely for one that belongs to
+        -- no project.
+        local function attach_mention(bufnr)
+            if config.mention == false then return end
+            mention.attach(bufnr, {
+                root = not entry_is_global(entry) and vim.fs.normalize(entry_cwd(entry, root)) or nil,
+                source = source,
+                source_line = source_line,
+            })
+        end
         create_window(win_type, title, function(bufnr, win_id, reused)
             -- A sidebar prompt outlives the send that opened it, so this send's
             -- ref, seed and history have to reach the buffer rather than the
@@ -641,6 +671,7 @@ function M.send_terminal_command(term_key, opts)
                     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(command, '\n', { plain = true }))
                 end
                 attach_history(bufnr, target_buf)
+                attach_mention(bufnr)
                 if opts.selection or not is_blank(buffer_text(bufnr)) then
                     insert_at_end(bufnr, win_id)
                 end
@@ -656,6 +687,7 @@ function M.send_terminal_command(term_key, opts)
                     end
                     return target_buf
                 end, { start_insert = start_insert, term_title = term, term = target_buf })
+                attach_mention(bufnr)
             end
             if not M.is_idle(target_buf, 2000) then
                 -- Mid-output, the terminal takes the window instead of a
