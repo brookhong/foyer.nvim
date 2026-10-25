@@ -175,9 +175,10 @@ function H.test(name, fn)
     io.stdout:flush()
 end
 
+-- Cut by characters, not bytes: half a character is no UTF-8 at all.
 local function show(v)
     local s = vim.inspect(v)
-    return #s > 200 and s:sub(1, 200) .. '…' or s
+    return vim.fn.strchars(s) > 200 and vim.fn.strcharpart(s, 0, 200) .. '…' or s
 end
 
 function H.eq(want, got, what)

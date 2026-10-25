@@ -1053,7 +1053,7 @@ local function pick_terminal(root, launch_info, running)
         col = math.floor((vim.o.columns - width) / 2),
         style = 'minimal',
         border = 'rounded',
-        title = ' Terminal ',
+        title = ' Terminal / Foyer ',
         title_pos = 'center',
         footer = footer,
         footer_pos = 'right',

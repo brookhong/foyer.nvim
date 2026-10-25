@@ -17,7 +17,9 @@ for spec in "$@"; do
     echo "$spec"
     out=$(nvim --headless --clean -u NONE -n -l "$spec" 2>&1)
     code=$?
-    printf '%s\n' "$out" | tr '\r' '\n' | grep -av '^$'
+    # LC_ALL=C: bytes, not characters, so no output is lost to one that is not
+    # valid in the locale.
+    printf '%s\n' "$out" | LC_ALL=C tr '\r' '\n' | grep -av '^$'
     [ "$code" -eq 0 ] || status=1
 done
 exit $status

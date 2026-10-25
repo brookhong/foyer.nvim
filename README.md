@@ -300,6 +300,14 @@ and any other key hands over to `jump.fallback`, for an old file the picker had
 no room for. A window squeezed flat by a full-screen neighbour is left out,
 like `tab_switch()` does; what it shows is still listed among the buffers.
 
+It opens in a bordered window titled *Jump / Foyer*, with the keys along its
+bottom edge, and fits it whatever it holds. Tabs too many to sit side by side
+carry on in bands below, each under a line of `─`. A name that needs many
+directories to tell it apart, as copies of a project on two drives do, keeps
+only the one that does and the last two: `C:/…/module/init.lua` and
+`D:/…/module/init.lua`. A name still too long for the window loses its start
+to `…`, keeping the file name.
+
 ```lua
 vim.keymap.set('n', '<leader>b', require('foyer').jump, { desc = 'Jump anywhere' })
 ```

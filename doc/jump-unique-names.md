@@ -14,16 +14,23 @@ they live (you know what your open buffers are, but an old `todo.md` could be
 from anywhere):
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━ Tabs|2 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-│ a  x/src/init.lua │ z/init.lua  s  y/src/init.lua │
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━ Buffers|2 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-│ d  w/src/init.lua │ f  main.lua │
-
-━━━━━━━━━━━━━━━━━━━━━━━━━ Old files|4 ━━━━━━━━━━━━━━━━━━━━━━━━━
-│ g  q/src/init.lua │ q  notes/config.md │ w  dot/config.md │
-│ e  qbt/solo.txt │
+╭──────────────────────── Jump / Foyer ────────────────────────╮
+│                         『Tabs|2 』                          │
+││ a  x/src/init.lua │ z/init.lua  s  y/src/init.lua │         │
+│                                                              │
+│                        『Buffers|2 』                        │
+││ d  w/src/init.lua │ f  main.lua │                           │
+│                                                              │
+│                       『Old files|4 』                       │
+││ g  q/src/init.lua │ q  notes/config.md │ w  dot/config.md │ │
+││ e  qbt/solo.txt │                                           │
+│                                                              │
+╰─────────────────── Type hint labels to pick, <Esc> to cancel ╯
 ```
+
+The picker is a float with a rounded border, titled `Jump / Foyer` and with the
+keys along its bottom edge; inside it, each group's title (`setTitle`) is
+centred as `『Tabs|2 』`, the count after the bar.
 
 Because labels are unique, no group needs directory headings.
 
@@ -106,7 +113,9 @@ already listed buffers. Paths are normalized with `vim.fs.normalize`.
 
 Returns one table of labels: `names[bufnr]` for buffers and `names[path]` for
 old files. A bufnr is a number and a path is a string, so the two kinds of key
-can't collide.
+can't collide. It gathers the entries and leaves the naming to
+`uniqueNames(items)`, which works from paths alone -- so the tests can give it
+Windows paths on any system.
 
 ### 2a. Entries and grouping
 
@@ -185,9 +194,28 @@ parent directory:
 /tmp/qbt2/b/a/init.lua  -> b/a/init.lua
 ```
 
+### 2c. Eliding the middle
+
+Two trees that differ only near the top -- a copy of a project on `C:` and one
+on `D:`, two clones side by side -- make names that are almost the whole path:
+`D:/work/project/src/module/init.lua`. A name of more than `ELIDE_OVER` (4)
+parts keeps only its first part, the one that tells it apart, and its last two:
+
+```
+C:/work/project/src/module/init.lua  ->  C:/…/module/init.lua
+D:/work/project/src/module/init.lua  ->  D:/…/module/init.lua
+```
+
+A drive is a part like any directory, so a name reaching it starts with it, as
+one reaching the root starts with `/` (`/…/module/init.lua`). Paths are
+normalized first, so `d:\work\…` and `D:/work/…` are the same path.
+
+The shorter name is only taken where it is still unique in its group: if two
+entries would elide to the same name, they keep their full ones.
+
 ## Step 3: draw the entries
 
-### Tabs — `buildLinesForTabs(names)` / `layoutBlock(node, nr, cur_win, names)`
+### Tabs — `buildLinesForTabs(names, max_width)` / `layoutBlock(node, nr, cur_win, names, cap)`
 
 `names` is passed down the recursive `layoutBlock` call. At each leaf:
 
@@ -202,13 +230,40 @@ sliver -- squeezed down to `'winminwidth'`/`'winminheight'`, as
 `foyer.layout.is_sliver` has it -- is left out: a leaf returns nil, a split
 with nothing left in it does too, and a tab of nothing but slivers keeps an
 empty cell so the cells still line up with the tabline. Its buffer is not in
-`exclude`, so it is still listed among the Buffers. Side-by-side windows share a line, stacked
-windows are stacked, cells are padded to the same display width
-(`strdisplaywidth`), and marks are assigned top-down and left-to-right.
+`exclude`, so it is still listed among the Buffers. Side-by-side windows share
+a line, stacked windows are stacked, cells are padded to the same display
+width (`strdisplaywidth`), and marks are assigned top-down and left-to-right.
+
+#### Bands
+
+No line may be wider than the picker, or it wraps and the layout falls apart.
+So tab cells sit side by side only while they fit in `max_width`; the next one
+starts a band below, under a line of `─` (`BAND_SEP`):
+
+```
+│    D/…/module/init.lua     C/…/module/init.lua │
+──────────────────────────────────────────────────
+│    D/…/module/config.lua     C/…/module/config.lua │ README.md │
+```
+
+Lines are emitted band by band, each top-down and left-to-right, so the marks
+still follow the order of `data`. A cell too wide even on its own -- one tab
+split many ways, with long names -- is laid out again with its names capped,
+from 40 cells down, until it fits: `shorten(name, cap)` cuts a name from the
+start, leaving `…` and the end, where the file name is.
+
+`max_width` is `'columns'` less the two cells of the picker's border, and
+`max_height` takes the border's two rows off too. The picker is made at least
+as wide as its title and footer, room allowing, or the border would cut them.
+
+`│`, `─` and `…` are ambiguous-width: one cell, or two with `'ambiwidth'`
+double. So every width is measured (`cells()`), none assumed: the bands, the
+separator line, and how much of a name `shorten` keeps.
 
 ### Flat lists — `packEntries(entries, max_width, max_height)`
 
-Shared by Buffers and Old files. Each entry is `{ name, current, noname }`
+Shared by Buffers and Old files. An entry wider than a whole line is cut to
+fit with `shorten`, as Tabs does. Each entry is `{ name, current, noname }`
 and is drawn as `ENTRY_PREFIX` (a space, the two-cell `LABEL_SLOT`, a space),
 the name, a space and `COL_SEP` (`│`). The current buffer is told apart by its
 color (`FoyerJumpCurrent`), not by a marker.
@@ -238,6 +293,8 @@ only the paths that fit. A picked old file is still opened by its full path.
   files then runs out of height, a file that isn't shown may still have made
   another label longer. This is rare and harmless: the label is still unique,
   just longer than needed.
+- A name cut by `shorten` to fit loses its start, and with it maybe what told
+  it apart; it is still picked by its label, which is what makes it unique.
 - Cost: for a group of `n` same-named entries whose paths have at most `d`
   parts, the work is `O(n² · d)`. With at most `#jump.characters`
   marks, that's negligible.

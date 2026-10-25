@@ -16,7 +16,7 @@ foyer.send_terminal_command = function(key) driven = key end
 local function popup()
     for _, w in ipairs(vim.api.nvim_list_wins()) do
         local cfg = vim.api.nvim_win_get_config(w)
-        if cfg.relative ~= '' and cfg.title and cfg.title[1][1] == ' Terminal ' then
+        if cfg.relative ~= '' and cfg.title and cfg.title[1][1]:find('Terminal', 1, true) then
             local buf = vim.api.nvim_win_get_buf(w)
             local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
             return {

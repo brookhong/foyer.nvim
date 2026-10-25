@@ -13,6 +13,17 @@ local M = {}
 local LABEL_SLOT = "  "
 local ENTRY_PREFIX = " "..LABEL_SLOT.." "
 local COL_SEP = "│"
+-- The picker's frame: its title, and the reminder of the keys along its
+-- bottom edge.
+local TITLE = " Jump / Foyer "
+local FOOTER = " Type hint labels to pick, <Esc> to cancel "
+
+-- Display cells of {s}. The box-drawing characters the picker is drawn with
+-- are ambiguous-width, two cells with 'ambiwidth' double, so nothing is laid
+-- out as if they were one.
+local function cells(s)
+    return vim.fn.strdisplaywidth(s)
+end
 
 -- Highlight groups, applied with extmarks (see M.open); set them in your
 -- config to change the colors.
@@ -80,6 +91,19 @@ api.nvim_create_autocmd("ColorScheme", {
 -- Highlight group for an entry's name.
 local function nameHl(current, noname)
     return noname and HL.noname or (current and HL.current or HL.name)
+end
+
+-- {cap}, when given, is the most display cells a name may take: longer ones
+-- lose their start to "…", keeping the end, where the file name is.
+local function shorten(name, cap)
+    if not cap or cells(name) <= cap then return name end
+    local chars = vim.fn.strchars(name)
+    local keep = chars
+    -- "…" is ambiguous-width as well.
+    while keep > 0 and cells(vim.fn.strcharpart(name, chars - keep)) > cap - cells("…") do
+        keep = keep - 1
+    end
+    return "…" .. vim.fn.strcharpart(name, chars - keep)
 end
 
 local function first_non_empty_line(bufnr)
@@ -160,6 +184,8 @@ local function packEntries(entries, max_width, max_height)
     local files, lineHls, lineSlots = COL_SEP, {}, {}
     local prefix = ENTRY_PREFIX
     for _, e in ipairs(entries) do
+        -- One entry wider than a whole line would wrap it: cut it to fit.
+        e = vim.tbl_extend("force", e, { name = shorten(e.name, max_width - cells(COL_SEP .. prefix .. " " .. COL_SEP)) })
         local entry = prefix..e.name.." "..COL_SEP
         if files ~= COL_SEP and vim.fn.strdisplaywidth(files..entry) > max_width then
             lines[#lines + 1] = files
@@ -214,12 +240,11 @@ local buildLinesForBuffers = function(max_width, max_height, exclude, names)
 end
 
 local setTitle = function(lines, width, title)
-    title = " "..title.." "
-    -- split the padding so every title is exactly `width` wide, even when
-    -- width - #title is odd (the right side gets the extra one)
+    title = "『"..title.." 』"
+    -- center the title within the width
     local pad = math.max(0, width - vim.fn.strdisplaywidth(title))
     local left = math.floor(pad / 2)
-    lines[1] = string.rep("━", left)..title..string.rep("━", pad - left)
+    lines[1] = string.rep(" ", left)..title..string.rep(" ", pad - left)
 end
 local layout = function(lines, max_width)
     local width = 0
@@ -298,33 +323,28 @@ local function bufDisplayName(bufnr)
     return tail
 end
 
--- Display names, keyed by bufnr for `bufnrs` and by path for `paths` (old files).
--- A name is the file name, prefixed with the fewest parent directories needed to
--- tell it apart from other entries with the same file name. Old files always get
--- at least their parent directory, as a hint of where they live.
-local function uniqueDisplayNames(bufnrs, paths)
+-- A name made of more parts than this keeps only its first and last two, the
+-- middle given as "…": D/work/project/src/module/init.lua is D/…/module/init.lua.
+local ELIDE_OVER = 4
+
+-- Unique names for {items}, each { key = ..., path = ..., minDepth = n }: the
+-- file name, prefixed with the fewest parent directories needed to tell it
+-- apart from the other items with the same file name, and never fewer than
+-- minDepth parts. Where that takes many directories -- two trees that differ
+-- only near the top, a copy on C: and one on D: -- the middle is elided, as
+-- long as the shorter name is still unique. A drive (C:) is a part like any
+-- directory, so a name reaching it starts with it; the leading "" of a rooted
+-- path makes one reaching the root start with "/". {win} reads the paths as
+-- Windows paths whatever the system, for the tests; by default they are read
+-- as the system's own.
+local function uniqueNames(items, win)
     local names, groups = {}, {}
-    local function add(key, path, minDepth)
-        local parts = vim.split(vim.fs.normalize(path), "/", { plain = true })
+    for _, item in ipairs(items) do
+        local parts = vim.split(vim.fs.normalize(item.path, { win = win }), "/", { plain = true })
         local tail = parts[#parts]
         local g = groups[tail] or {}
         groups[tail] = g
-        g[#g+1] = { key = key, parts = parts, minDepth = minDepth }
-    end
-    for _, b in ipairs(bufnrs) do
-        if names[b] == nil then
-            names[b] = bufDisplayName(b)
-            local path = api.nvim_buf_get_name(b)
-            if path ~= "" then
-                add(b, path, 1)
-            end
-        end
-    end
-    for _, path in ipairs(paths or {}) do
-        if names[path] == nil then
-            names[path] = path
-            add(path, path, 2)
-        end
+        g[#g+1] = { key = item.key, parts = parts, minDepth = item.minDepth }
     end
     local function suffix(parts, k)
         return table.concat(parts, "/", math.max(1, #parts - k + 1))
@@ -343,8 +363,52 @@ local function uniqueDisplayNames(bufnrs, paths)
                 if not clash then break end
                 k = k + 1
             end
+            e.k = k
             names[e.key] = suffix(e.parts, k)
         end
+        -- Elided only where every name in the group stays unique.
+        local taken = {}
+        for _, e in ipairs(g) do taken[names[e.key]] = (taken[names[e.key]] or 0) + 1 end
+        for _, e in ipairs(g) do
+            if e.k > ELIDE_OVER then
+                local n = #e.parts
+                local short = e.parts[n - e.k + 1] .. "/…/" .. e.parts[n - 1] .. "/" .. e.parts[n]
+                if not taken[short] then
+                    taken[names[e.key]] = taken[names[e.key]] - 1
+                    if taken[names[e.key]] == 0 then taken[names[e.key]] = nil end
+                    names[e.key] = short
+                    taken[short] = 1
+                end
+            end
+        end
+    end
+    return names
+end
+M._unique_names = uniqueNames
+
+-- Display names, keyed by bufnr for `bufnrs` and by path for `paths` (old
+-- files), see uniqueNames. Old files always get at least their parent
+-- directory, as a hint of where they live; a buffer without a file is named
+-- by its first line.
+local function uniqueDisplayNames(bufnrs, paths)
+    local names, items = {}, {}
+    for _, b in ipairs(bufnrs) do
+        if names[b] == nil then
+            names[b] = bufDisplayName(b)
+            local path = api.nvim_buf_get_name(b)
+            if path ~= "" then
+                items[#items+1] = { key = b, path = path, minDepth = 1 }
+            end
+        end
+    end
+    for _, path in ipairs(paths or {}) do
+        if names[path] == nil then
+            names[path] = path
+            items[#items+1] = { key = path, path = path, minDepth = 2 }
+        end
+    end
+    for key, name in pairs(uniqueNames(items)) do
+        names[key] = name
     end
     return names
 end
@@ -378,13 +442,13 @@ end
 -- A window squeezed flat (see foyer.layout) is left out, as one nobody chose to
 -- look at: what is shown in it stays reachable among the buffers. Nil when
 -- nothing in {node} is left.
-local function layoutBlock(node, nr, cur_win, names)
+local function layoutBlock(node, nr, cur_win, names, cap)
     local kind = node[1]
     if kind == "leaf" then
         local win = node[2]
         if win ~= cur_win and is_sliver(win) then return nil end
         local bufnr = api.nvim_win_get_buf(win)
-        local name = names[bufnr]
+        local name = shorten(names[bufnr], cap)
         -- the current window needs no mark, it's where we already are
         local current = win == cur_win
         local prefix = current and " " or ENTRY_PREFIX
@@ -399,7 +463,7 @@ local function layoutBlock(node, nr, cur_win, names)
     end
     local children = {}
     for _, child in ipairs(node[2]) do
-        children[#children+1] = layoutBlock(child, nr, cur_win, names)
+        children[#children+1] = layoutBlock(child, nr, cur_win, names, cap)
     end
     if #children == 0 then return nil end
     local block = { lines = {}, width = 0 }
@@ -440,19 +504,29 @@ local function layoutBlock(node, nr, cur_win, names)
 end
 
 -- Tabs: one cell per tab (matching the tabline order); inside each cell the
--- tab's windows are laid out the way they are placed on screen.
-local buildLinesForTabs = function(names)
+-- tab's windows are laid out the way they are placed on screen. Cells sit side
+-- by side as long as they fit in {max_width}, then carry on in a band below,
+-- under a line of BAND_SEP, so that no line is wider than the picker. A cell
+-- too wide even alone has its names shortened until it fits.
+local BAND_SEP = "─"
+local buildLinesForTabs = function(names, max_width)
     local tabs = api.nvim_list_tabpages()
     local cur_win = api.nvim_get_current_win()
-    local cells = {}
-    local rows, total = 0, 0
+    local tabCells = {}
+    local total = 0
     for _, tab in ipairs(tabs) do
         local nr = api.nvim_tabpage_get_number(tab)
+        local layout_tree = vim.fn.winlayout(nr)
         -- A tab of nothing but slivers keeps its cell, so the cells still
-        -- line up with the tabline.
-        local block = layoutBlock(vim.fn.winlayout(nr), nr, cur_win, names) or { lines = {}, width = 0 }
-        cells[#cells+1] = block
-        rows = math.max(rows, #block.lines)
+        -- follow the tabline.
+        local block = layoutBlock(layout_tree, nr, cur_win, names) or { lines = {}, width = 0 }
+        -- The cell is framed by a COL_SEP on each side.
+        local cap = 40
+        while block.width + 2 * cells(COL_SEP) > max_width and cap > 8 do
+            block = layoutBlock(layout_tree, nr, cur_win, names, cap)
+            cap = cap - 4
+        end
+        tabCells[#tabCells+1] = block
         for _, l in ipairs(block.lines) do
             total = total + #l.wins
         end
@@ -462,29 +536,53 @@ local buildLinesForTabs = function(names)
         return {}, {}, {}, {}
     end
 
-    -- lines are emitted top-down, left-right, which matches the label slot order
+    -- Bands of cells, each no wider than max_width: a COL_SEP, then each cell
+    -- followed by one.
+    local sep = cells(COL_SEP)
+    local bands, band, width = {}, {}, sep
+    for _, cell in ipairs(tabCells) do
+        if #band > 0 and width + cell.width + sep > max_width then
+            bands[#bands+1] = { cells = band, width = width }
+            band, width = {}, sep
+        end
+        band[#band+1] = cell
+        width = width + cell.width + sep
+    end
+    bands[#bands+1] = { cells = band, width = width }
+    local widest = 0
+    for _, b in ipairs(bands) do widest = math.max(widest, b.width) end
+
+    -- lines are emitted band by band, top-down, left-right, which matches the
+    -- label slot order
     local lines = {""}
     local data = {}
     local hls, slots = {}, {}
-    for r = 1, rows do
-        local line, lineHls, lineSlots = COL_SEP, {}, {}
-        for _, cell in ipairs(cells) do
-            local l = cell.lines[r]
-            if l then
-                for _, win in ipairs(l.wins) do
-                    data[#data+1] = { win = win }
-                end
-                for _, h in ipairs(l.hls) do
-                    lineHls[#lineHls+1] = { #line + h[1], #line + h[2], h[3] }
-                end
-                for _, col in ipairs(l.slots) do
-                    lineSlots[#lineSlots+1] = #line + col
-                end
-            end
-            line = line..padRight(l and l.text or "", cell.width)..COL_SEP
+    for bi, b in ipairs(bands) do
+        if bi > 1 then
+            lines[#lines+1] = string.rep(BAND_SEP, math.floor(widest / cells(BAND_SEP)))
         end
-        lines[#lines+1] = line
-        hls[#lines], slots[#lines] = lineHls, lineSlots
+        local rows = 0
+        for _, cell in ipairs(b.cells) do rows = math.max(rows, #cell.lines) end
+        for r = 1, rows do
+            local line, lineHls, lineSlots = COL_SEP, {}, {}
+            for _, cell in ipairs(b.cells) do
+                local l = cell.lines[r]
+                if l then
+                    for _, win in ipairs(l.wins) do
+                        data[#data+1] = { win = win }
+                    end
+                    for _, h in ipairs(l.hls) do
+                        lineHls[#lineHls+1] = { #line + h[1], #line + h[2], h[3] }
+                    end
+                    for _, col in ipairs(l.slots) do
+                        lineSlots[#lineSlots+1] = #line + col
+                    end
+                end
+                line = line..padRight(l and l.text or "", cell.width)..COL_SEP
+            end
+            lines[#lines+1] = line
+            hls[#lines], slots[#lines] = lineHls, lineSlots
+        end
     end
     lines[#lines+1] = ""
     return lines, data, hls, slots
@@ -561,8 +659,9 @@ function M.open()
     -- use the whole editor area (outermost window), not the current window
     local tabline = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and #api.nvim_list_tabpages() > 1)) and 1 or 0
     local statusline = vim.o.laststatus > 0 and 1 or 0
-    local max_width = vim.o.columns
-    local max_height = vim.o.lines - vim.o.cmdheight - tabline - statusline - 2
+    -- The picker wears a border: one cell on each side, one row above and below.
+    local max_width = vim.o.columns - 2
+    local max_height = vim.o.lines - vim.o.cmdheight - tabline - statusline - 2 - 2
     -- buffers whose names are shown: those in any tab's windows plus listed ones
     local nameBufs = {}
     for _, tab in ipairs(api.nvim_list_tabpages()) do
@@ -575,7 +674,7 @@ function M.open()
     local tabLines, tabData, tabHls, tabSlots, tabWidth, tabHeight
     local bufLines, bufData, bufTotal, bufHls, bufSlots, bufWidth, bufHeight
     local function buildTabsAndBuffers(names)
-        tabLines, tabData, tabHls, tabSlots = buildLinesForTabs(names)
+        tabLines, tabData, tabHls, tabSlots = buildLinesForTabs(names, max_width)
         tabWidth, tabHeight = 0, 0
         if #tabData > 0 then
             tabWidth, tabHeight = layout(tabLines, max_width)
@@ -637,6 +736,10 @@ function M.open()
         end
     end
 
+    -- Wide enough for the frame's title and footer too, or they are cut, as
+    -- long as the screen has room.
+    width = math.min(max_width, math.max(width, cells(TITLE) + 2, cells(FOOTER) + 2))
+
     -- assemble sections; data order must match mark order in the picker
     local lines, data, hls, positions = {}, {}, {}, {}
     local function append(sectionLines, sectionData, title, sectionHls, sectionSlots)
@@ -682,7 +785,20 @@ function M.open()
         api.nvim_buf_set_extmark(buf_picker_id, buf_picker_hl_ns, h[1], h[2], { end_col = h[3], hl_group = h[4] })
     end
     local backdrop_win_id = openBackdrop(config.jump.backdrop)
-    local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {relative='editor', row=tabline, col=0, width=width, height=height + 2, zindex=50})
+    local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {
+        relative = 'editor',
+        row = tabline,
+        col = 0,
+        width = width,
+        height = height + 2,
+        style = 'minimal',
+        border = 'rounded',
+        title = TITLE,
+        title_pos = 'center',
+        footer = FOOTER,
+        footer_pos = 'right',
+        zindex = 50,
+    })
     vim.wo[buf_picker_win_id].relativenumber = false
     vim.wo[buf_picker_win_id].number = false
     vim.api.nvim_set_current_win(buf_picker_win_id )
