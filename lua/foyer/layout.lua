@@ -1,5 +1,6 @@
 -- Window utilities that know nothing of foyer's prompts or terminals: the
--- full-screen toggle and the window-or-buffer switch.
+-- full-screen toggle, the window-or-buffer switch, and what counts as a window
+-- worth going to, which foyer.jump asks too.
 local M = {}
 
 -- Toggle the current window between full screen and the size it had before:
@@ -74,5 +75,7 @@ function M.tab_switch()
 
     vim.cmd('b#')
 end
+
+M.is_sliver = is_sliver
 
 return M

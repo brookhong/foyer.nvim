@@ -80,6 +80,10 @@ newlines instead of reading them as Enter. The prompt window then turns into
 the agent's terminal, so you watch the answer come in exactly where you asked.
 `<CR>` puts it away again.
 
+A prompt sent while the agent is still starting waits until it's ready. If the
+agent opens on a question of its own, such as whether to trust the folder,
+foyer won't answer it for you: it tells you, and the prompt is one `<Up>` away.
+
 Forgot a letter? Pause after `<leader>a` and a picker lists every agent you
 configured.
 
@@ -292,6 +296,9 @@ while it works? `<C-o>` takes you to the prompt.
 - **`x`** toggles a terminal window to full screen and back.
 - **`tab_switch()`** moves to the next window worth looking at, skipping the
   slivers a full-screen window leaves behind.
+- **`jump()`** labels every tab, window, buffer and recent file, laid out as
+  they sit on screen; type a label to go there, with Shift for a new tab. Names
+  are just long enough to tell apart, and squeezed windows are left out.
 
 ---
 

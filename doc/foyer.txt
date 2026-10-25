@@ -97,6 +97,13 @@ mention ~
     Whether `@` in a terminal's prompt lists the open files to mention, see
     |foyer-mention|. Defaults to `true`.
 
+jump ~
+    For |foyer.jump()|: `characters`, the keys its hint labels are made of
+    (default `'asdfgqwertzxcvb'`); `backdrop`, the 'winblend' of the backdrop
+    dimming the editor behind it, or `false` for none (default `60`); and
+    `fallback`, a function for a key that is no label (default: Telescope's
+    oldfiles if installed, else |vim.ui.select()| over |v:oldfiles|).
+
                                                            *foyer.send_prefix*
 send_prefix ~
     Keys that clear the receiver's input line and its screen, keyed by the
@@ -263,6 +270,21 @@ toggle_full_size()
     so two windows toggle independently. Full screen is a request, not a
     promise: a neighbouring split keeps its minimum width, so a split may stop
     a few columns short of 'columns'.
+
+                                                                *foyer.jump()*
+jump()
+    Jump to any tab, window, buffer or recently opened file by typing the hint
+    label drawn over it, after the tab switcher of Surfingkeys. Every tab page
+    is laid out with its windows placed as on screen, then the listed buffers
+    no window shows, by when they were last used, then recent files, each
+    name just long enough to tell it from the others. Type a label to go
+    there, with Shift to open it in a new tab. <BS> starts the label again,
+    <Esc> cancels, any other key hands over to `jump.fallback`, see
+    |foyer-setup|. A window squeezed flat by a full-screen neighbour is left
+    out, as |foyer.tab_switch()| does; what it shows is still listed among the
+    buffers. >lua
+        vim.keymap.set('n', '<leader>b', require('foyer').jump)
+<
 
                                                           *foyer.tab_switch()*
 tab_switch()
@@ -436,6 +458,19 @@ FoyerBackdrop
     The veil dimming the editor while the |foyer.terminal_command()| picker
     is up, blended in at 'winblend' 40. Defaults to `bg=#000000`. Only drawn
     with 'termguicolors' set, since without it the veil cannot blend.
+
+|foyer.jump()| has its own, with a palette for each 'background', given as
+colors rather than links so they stay distinct in any colorscheme. Groups you
+set yourself are kept; set them from a |ColorScheme| autocmd, since a
+colorscheme change clears them.
+
+    FoyerJumpTitle          section titles
+    FoyerJumpName           buffer, window and file names
+    FoyerJumpCurrent        the current buffer or window
+    FoyerJumpNoName         buffers without a file name
+    FoyerJumpLabel          hint labels
+    FoyerJumpLabelTyped     the part of a hint label already typed
+    FoyerJumpBackdrop       dims the editor behind it, see `jump.backdrop`
 
 ==============================================================================
 8. LIMITATIONS                                             *foyer-limitations*

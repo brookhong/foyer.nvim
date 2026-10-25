@@ -1155,6 +1155,11 @@ end
 
 
 M.setup = options.setup
+-- Required on first use: the picker makes its buffers when it is loaded.
+function M.jump()
+    return require('foyer.jump').open()
+end
+
 M.toggle_full_size = layout.toggle_full_size
 M.tab_switch = layout.tab_switch
 

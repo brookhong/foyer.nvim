@@ -32,6 +32,8 @@ until you are done with it here.
   scrollback.
 - **Editable visual selection** — `edit_selection()` opens any visual selection
   in a floating scratch buffer and writes the result back over the selection.
+- **Jump anywhere** — `jump()` labels every tab, window, buffer and recent file;
+  type a label to go there. Windows squeezed flat are left out.
 
 ## Requirements
 
@@ -102,6 +104,11 @@ require('foyer').setup({
     -- `@` in a terminal's prompt lists the open files to mention. Defaults to
     -- true.
     mention = true,
+
+    -- jump(): the keys its hint labels are made of, the 'winblend' of the
+    -- backdrop behind it (false for none), and what a key that is no label
+    -- opens -- by default Telescope's oldfiles if installed, else vim.ui.select.
+    jump = { characters = 'asdfgqwertzxcvb', backdrop = 60, fallback = nil },
 
     -- Keys that clear the receiver's input line and its screen, keyed by the
     -- program receiving them. Defaults to { Ctrl-U, Ctrl-L }. A program that
@@ -212,6 +219,7 @@ end, { desc = 'Edit selection in floating window' })
 | `edit_input()` | Lift the terminal's current command line into a floating buffer. Must be called from a terminal buffer. |
 | `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |
 | `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float, width for a split. A neighbouring split keeps its minimum width, so a split may stop a few columns short. |
+| `jump()` | Jump to any tab, window, buffer or recent file by typing the hint label drawn over it; see below. |
 | `tab_switch()` | Move to the next window worth looking at: `CTRL-W w` order, wrapping around, skipping floats and windows a full-screen neighbour has squeezed to `'winminwidth'`/`'winminheight'`. With nothing left to step into, switches to the alternate buffer (`CTRL-^`) instead. A maximised diff pane restores the squeezed pane and steps into it. |
 | `is_idle(buf, threshold_ms)` | Whether `buf` has produced no output for `threshold_ms` (default 1000). |
 
@@ -278,6 +286,23 @@ transient and is simply opened again.
 A terminal still producing output keeps the window instead of giving it to a
 prompt (see `is_idle`); there is no prompt for a selection to ride on then, so
 it is dropped and said so with `vim.notify`.
+
+### `jump()`
+
+A picker for getting anywhere in two keystrokes, after the
+[tab switcher](https://github.com/brookhong/Surfingkeys?tab=readme-ov-file#switch-tabs)
+of Surfingkeys. It lays out every tab page with its windows placed as they are
+on screen, then the listed buffers not shown in any window, by when you last
+used them, then recently opened files, each name just long enough to tell it
+from the others. Each one has a hint label over it: type it to go there, with
+Shift to open it in a new tab. `<BS>` starts the label again, `<Esc>` cancels,
+and any other key hands over to `jump.fallback`, for an old file the picker had
+no room for. A window squeezed flat by a full-screen neighbour is left out,
+like `tab_switch()` does; what it shows is still listed among the buffers.
+
+```lua
+vim.keymap.set('n', '<leader>b', require('foyer').jump, { desc = 'Jump anywhere' })
+```
 
 ## Giving an agent your editor context
 
@@ -431,6 +456,22 @@ wanted to copy.
 
 Defined with `default = true`, so override it with `vim.api.nvim_set_hl` or from
 your colorscheme.
+
+`jump()` has its own, with a palette for each `'background'`, given as colors
+rather than links so they stay distinct in any colorscheme:
+
+| Group | Dark | Light | Used for |
+| --- | --- | --- | --- |
+| `FoyerJumpTitle` | `#65737e` | `#8a8a8a` | section titles |
+| `FoyerJumpName` | `#6699cc` bold | `#005f87` bold | buffer, window and file names |
+| `FoyerJumpCurrent` | `#99c794` bold | `#008700` bold | the current buffer or window |
+| `FoyerJumpNoName` | `#f99157` italic | `#af5f00` italic | buffers without a file name |
+| `FoyerJumpLabel` | `#1b2b34` on `#fac863` bold | `#ffffff` on `#d75f00` bold | hint labels |
+| `FoyerJumpLabelTyped` | `#1b2b34` on `#65737e` | `#ffffff` on `#8a8a8a` | the part of a label already typed |
+| `FoyerJumpBackdrop` | bg `#000000` | bg `#000000` | dims the editor behind it (see `jump.backdrop`) |
+
+A colorscheme change clears highlight groups, so set yours from a `ColorScheme`
+autocmd or after `:colorscheme`.
 
 ## Notes and limitations
 
