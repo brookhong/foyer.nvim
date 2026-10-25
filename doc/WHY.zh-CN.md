@@ -69,6 +69,8 @@ foyer 不会替你回答：它会提醒你，提示词按一下 `<Up>` 就能找
 
 记不住字母？按完 `<leader>a` 稍等一下，会弹出一个列表，列出你配置的所有 Agent。
 
+<img width="1808" height="196" alt="终端选择器：按字母列出每个 Agent" src="https://github.com/user-attachments/assets/a87dec0f-a607-40df-850b-dde8a2a55574" />
+
 ---
 
 ## 二、选中代码就能问，不用复制粘贴
@@ -233,6 +235,8 @@ vim.api.nvim_create_autocmd('TermOpen', {
 - **`tab_switch()`**：跳到下一个值得看的窗口，自动跳过被全屏窗口挤成一条缝的那些。
 - **`jump()`**：所有标签页、窗口、缓冲区和最近的文件按屏幕上的位置排开，各带一个标签，输入标签就过去，
   按住 Shift 则在新标签页打开。名字只取刚好能区分的长度，被挤扁的窗口不列出。
+
+<img width="1227" height="707" alt="foyer.jump() 把标签页、缓冲区和最近的文件排开，每项带一个标签" src="https://github.com/user-attachments/assets/d53489db-25a1-46cf-ad8a-81e07cffeedf" />
 
 ---
 

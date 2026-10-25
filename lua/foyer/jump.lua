@@ -72,6 +72,17 @@ local function setupHighlights()
     api.nvim_set_hl(0, HL.cursor, { blend = 100, nocombine = true })
 end
 
+-- Wait for a key with the cursor hidden. 0.11 and later can be asked to,
+-- which works in every UI; before that, only the 'guicursor' trick below is
+-- left, and it needs 'termguicolors' -- a cursor's blend is a GUI color.
+local HIDE_ON_READ = vim.fn.has("nvim-0.11") == 1
+local function readKey()
+    if HIDE_ON_READ then
+        return vim.fn.getcharstr(-1, { cursor = "hide" })
+    end
+    return vim.fn.getcharstr()
+end
+
 -- The picker is driven by typing labels, the cursor is never moved, so hide it
 -- while the picker is open. Returns a function that restores it.
 local function hideCursor()
@@ -811,8 +822,7 @@ function M.open()
     local newTab = false
     local matches = buildMarks(bnr, buf_picker_ns, data, positions)
     repeat
-        -- ch = vim.fn.getcharstr()
-        local ok, ret = pcall(vim.fn.getcharstr)
+        local ok, ret = pcall(readKey)
         if ok then
             ch = ret
         else
@@ -851,7 +861,9 @@ function M.open()
         end
         vim.cmd("redraw")
         matches = nextMatches
-    until(#matches < 2)
+    -- Done once what is typed leaves one label, or none. Not when nothing is
+    -- typed: <BS> starts over, and a picker of one entry would go to it.
+    until #matches == 0 or (#matches == 1 and pick ~= "")
 
     api.nvim_buf_clear_namespace(bnr, buf_picker_ns, 0, -1)
 
@@ -866,7 +878,8 @@ function M.open()
     if api.nvim_win_is_valid(original_win_id) then
         vim.api.nvim_set_current_win(original_win_id)
     end
-    if #matches == 1 then
+    -- <Esc> leaves wherever we are, however many labels were still left.
+    if ch ~= ESC and #matches == 1 then
         local data = matches[1].data
         if newTab then
             local buf = data

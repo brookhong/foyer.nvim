@@ -234,6 +234,14 @@ local small = H.child([[
     vim.keymap.set('n', '<F12>', require('foyer').jump)
 ]])
 
+H.test('<BS> starts the label over, even with one entry to pick', function()
+    small.type('<F12>', 400)
+    small.type('<BS>')
+    H.eq(true, small.lua('return vim.bo.filetype == "foyerjump"'), 'still in the picker')
+    small.type('<Esc>')
+    H.eq('README.md', small.lua('return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t")'), 'and <Esc> leaves us where we were')
+end)
+
 H.test('a picker with little in it is still wide enough for its footer', function()
     small.type('<F12>', 400)
     local drawn = small.lua([[

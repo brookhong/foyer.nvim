@@ -87,6 +87,8 @@ foyer won't answer it for you: it tells you, and the prompt is one `<Up>` away.
 Forgot a letter? Pause after `<leader>a` and a picker lists every agent you
 configured.
 
+<img width="1808" height="196" alt="The terminal picker, listing each agent by its letter" src="https://github.com/user-attachments/assets/a87dec0f-a607-40df-850b-dde8a2a55574" />
+
 ---
 
 ## Scenario 2: "Look at these lines": select, don't copy-paste
@@ -299,6 +301,8 @@ while it works? `<C-o>` takes you to the prompt.
 - **`jump()`** labels every tab, window, buffer and recent file, laid out as
   they sit on screen; type a label to go there, with Shift for a new tab. Names
   are just long enough to tell apart, and squeezed windows are left out.
+
+<img width="1227" height="707" alt="foyer.jump() laying out tabs, buffers and recent files, each with a label" src="https://github.com/user-attachments/assets/d53489db-25a1-46cf-ad8a-81e07cffeedf" />
 
 ---
 
