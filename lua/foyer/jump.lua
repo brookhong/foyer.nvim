@@ -227,9 +227,22 @@ local function packEntries(entries, max_width, max_height)
     return lines, count, hls, slots
 end
 
+-- The listed buffers worth a label: all of them but the terminals foyer
+-- started. Their names, a pid and a command line, would not tell one
+-- project's agent from another's; terminal_command() reaches this project's
+-- and the global ones, in a window where the prompt is a <C-o> away, and
+-- another project's is reached from that project. One in a window still
+-- shows among the tabs.
+local function listedBufs()
+    return vim.tbl_filter(function(b)
+        return not vim.b[b.bufnr].foyer_terminal
+    end, vim.fn.getbufinfo { buflisted = true })
+end
+
 local buildLinesForBuffers = function(max_width, max_height, exclude, names)
-    local bufs = vim.fn.getbufinfo { buflisted = true }
-    if #bufs == 1 then
+    local bufs = listedBufs()
+    -- Only the buffer in front: it needs no label to go to.
+    if #bufs == 1 and bufs[1].bufnr == api.nvim_get_current_buf() then
         return {}, {}, 0
     end
     if exclude then
@@ -685,7 +698,7 @@ function M.open()
     for _, tab in ipairs(api.nvim_list_tabpages()) do
         collectLeafBufs(vim.fn.winlayout(api.nvim_tabpage_get_number(tab)), nameBufs)
     end
-    for _, b in ipairs(vim.fn.getbufinfo { buflisted = true }) do
+    for _, b in ipairs(listedBufs()) do
         nameBufs[#nameBufs+1] = b.bufnr
     end
 

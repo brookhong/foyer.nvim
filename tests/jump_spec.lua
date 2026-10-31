@@ -260,4 +260,58 @@ H.test('a picker with little in it is still wide enough for its footer', functio
 end)
 
 small.stop()
+
+-- A terminal foyer started, and one opened by hand, both hidden behind a file.
+local terms = H.child([[
+    local foyer = require('foyer')
+    foyer.setup({ commands = { o = { 'sh', '-c "echo started-by-foyer; cat"' } } })
+    foyer.is_idle = function() return true end
+    vim.cmd('edit LICENSE')
+    foyer.terminal_command({ key = 'o', command = ':', auto_start = true })
+    vim.cmd('terminal sh -c "echo opened-by-hand; cat"')
+    vim.cmd('stopinsert | edit README.md | edit LICENSE')
+    vim.keymap.set('n', '<F12>', foyer.jump)
+]] .. LABELS)
+
+H.test('foyer\'s own terminals are left out of the buffers; one opened by hand is not', function()
+    vim.wait(500)
+    terms.type('<F12>', 400)
+    local labels = terms.lua('return _G.labels()')
+    terms.type('<Esc>')
+    local names = vim.tbl_keys(labels)
+    local function listed(text)
+        return vim.iter(names):any(function(n) return n:find(text, 1, true) ~= nil end)
+    end
+    H.ok(labels['README.md'], 'the file is there: ' .. vim.inspect(names))
+    H.ok(listed('opened-by-hand'), 'the hand-opened terminal is there: ' .. vim.inspect(names))
+    H.ok(not listed('started-by-foyer'), 'foyer\'s is not: ' .. vim.inspect(names))
+end)
+
+terms.stop()
+
+-- One file, hidden, and the picker opened from a terminal of foyer's: the file
+-- is the only buffer left to list, and not the one in front.
+local lone = H.child([[
+    local foyer = require('foyer')
+    foyer.setup({ commands = { o = { 'sh', '-c "cat"' } } })
+    foyer.is_idle = function() return true end
+    vim.cmd('edit LICENSE')
+    foyer.terminal_command({ key = 'o', command = ':', auto_start = true })
+    vim.cmd('stopinsert')
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.b[b].foyer_terminal then vim.api.nvim_set_current_buf(b) end
+    end
+    vim.keymap.set('n', '<F12>', foyer.jump)
+]] .. LABELS)
+
+H.test('the one file left, hidden behind a terminal of foyer\'s, is still listed', function()
+    vim.wait(500)
+    H.eq(true, lone.lua('return vim.b.foyer_terminal == true'), 'opened from the terminal')
+    lone.type('<F12>', 400)
+    local labels = lone.lua('return _G.labels()')
+    lone.type('<Esc>')
+    H.ok(labels['LICENSE'], 'LICENSE: ' .. vim.inspect(labels))
+end)
+
+lone.stop()
 H.finish()

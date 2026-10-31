@@ -1116,6 +1116,8 @@ local function open_term(root, term_key, launch_info)
         term_bufs[bucket] = {}
     end
     term_bufs[bucket][term_key] = vim.api.nvim_get_current_buf()
+    -- Ours, for jump() to leave out of its buffers: this one is a key away.
+    vim.b[term_bufs[bucket][term_key]].foyer_terminal = true
     -- Attach now so is_idle() actually tracks output from the very first
     -- command instead of reporting a busy terminal as idle.
     setup_terminal_keymaps(term_bufs[bucket][term_key])
