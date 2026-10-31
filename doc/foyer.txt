@@ -407,11 +407,15 @@ mode, where <Up> walks history.
     <Esc>             n    Close the window if the buffer is empty
     <C-c>             n    Close the window, discarding the draft
     <C-x><C-x>        n    Toggle previous size / full screen
+    <C-o>             n    Show the prompt's terminal in its window
 
 Once a prompt is sent, the terminal takes its window, and <C-o> from there
 comes back to the prompt emptied, with the selection it carried gone: a
 follow-up written there goes alone. What was sent is in history, one <Up>
-away.
+away. <C-o> works before a send too: from the prompt it shows the terminal,
+to read what it has said, and <C-o> there brings back the draft as it was
+left. It only ever toggles between the two, never to the file the prompt was
+opened from; Insert-mode |i_CTRL-O| is Vim's own.
 
 History is stored per terminal name in `stdpath('cache')/foyer.json` and
 survives restarts. Typing text before walking the history filters it to
@@ -455,7 +459,8 @@ words around it.
 
 |foyer.edit_selection()|'s window is text you are editing rather than a
 prompt: it keeps <CR>, <C-s>, <Esc>, <C-c> and <C-x><C-x>, has no history, and
-always starts in Normal mode.
+always starts in Normal mode. With no terminal behind it, <C-o> there does
+nothing, as it does in |foyer.edit_input()|'s.
 
 In the terminal buffer ~
 
@@ -467,6 +472,8 @@ windows, which `switch` does not do -- it hands the terminal your window.
     ]p                n    Jump to the next shell prompt
     <C-r>             n    cd to the project root, re-learn the prompt
     x                 n    Toggle previous size / full screen
+    <C-o>             n    Back to the prompt the terminal was shown for
+                           in this window; in one of yours, Vim's |CTRL-O|
     <CR>, <C-c>, <Esc> n   Close the terminal window
     <C-x>i            t    Paste register a at the prompt
     <C-x>w            t    Switch window, or tab if there is only one window

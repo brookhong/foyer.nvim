@@ -324,4 +324,101 @@ for _, win_type in ipairs({ 'float', 'sidebar' }) do
     end)
 end
 
+for _, win_type in ipairs({ 'float', 'sidebar' }) do
+    H.test(win_type .. ': before a send, <C-o> shows the terminal and comes back to the draft', function()
+        H.reset(file)
+        prompt({ win_type = win_type })
+        local prompt_buf, win = H.state().buf, H.state().win
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'half written' })
+        vim.cmd('stopinsert')
+        H.feed('<C-o>')
+        local s = H.state()
+        H.ok(s.terminal, 'the terminal, not the file the prompt was opened from: '
+            .. vim.api.nvim_buf_get_name(s.buf))
+        H.eq(win, s.win, 'in the same window')
+        H.ok(s.title:find('sh · foyer.nvim', 1, true), 'the frame names it: ' .. s.title)
+        vim.cmd('stopinsert')
+        H.feed('<C-o>')
+        H.eq(prompt_buf, H.state().buf, 'back in the prompt')
+        H.eq({ 'half written' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), 'the draft kept')
+        H.ok(H.state().title:find('Ctrl-s to send command', 1, true), 'its own frame: ' .. H.state().title)
+    end)
+end
+
+-- A real main loop: the terminal's scroll to the bottom is a startinsert from
+-- a timer, which only takes effect there.
+H.test('<C-o> twice in a row leaves the prompt in Normal mode, where it was', function()
+    local child = H.child([[
+        local foyer = require('foyer')
+        foyer.setup({ commands = { q = { 'sh', '-c "echo up; cat >/dev/null"' } } })
+        foyer.is_idle = function() return true end
+        vim.cmd('edit README.md')
+        foyer.terminal_command({ key = 'q' })
+    ]])
+    -- Not <Esc>: on an empty draft that closes the prompt. Time for the
+    -- terminal to come up instead.
+    vim.wait(500)
+    child.lua([[
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'half written' })
+        vim.api.nvim_win_set_cursor(0, { 1, 5 })
+        _G.prompt_buf = vim.api.nvim_get_current_buf()
+        _G.inserted = false
+        vim.api.nvim_create_autocmd('InsertEnter', {
+            buffer = _G.prompt_buf,
+            callback = function() _G.inserted = true end,
+        })
+    ]])
+    -- Faster than the terminal's scroll to the bottom, which is deferred.
+    child.type('<C-o>', 50)
+    child.type('<C-o>', 800)
+    local s = child.lua([[
+        return {
+            prompt = vim.api.nvim_get_current_buf() == _G.prompt_buf,
+            inserted = _G.inserted,
+            mode = vim.api.nvim_get_mode().mode,
+            cursor = vim.api.nvim_win_get_cursor(0),
+        }
+    ]])
+    child.stop()
+    H.ok(s.prompt, 'back in the prompt')
+    H.ok(not s.inserted, 'the terminal\'s scroll stayed out of the prompt')
+    H.eq('n', s.mode, 'Normal mode')
+    H.eq({ 1, 5 }, s.cursor, 'the cursor where it was')
+end)
+
+H.test('a terminal in two windows: <C-o> in each goes to that window\'s prompt', function()
+    H.reset(file)
+    prompt({ win_type = 'sidebar' })
+    local sidebar_prompt, sidebar = H.state().buf, H.state().win
+    H.send('from the sidebar')
+    local term = H.state().buf
+    H.ok(H.state().terminal, 'the terminal took the sidebar')
+    vim.cmd('stopinsert | wincmd p')
+    prompt()
+    local float_prompt, float = H.state().buf, H.state().win
+    H.ok(float_prompt ~= sidebar_prompt, 'a prompt of its own')
+    H.send('from the float')
+    H.eq(term, H.state().buf, 'the same terminal in the float')
+    vim.cmd('stopinsert')
+    vim.api.nvim_win_close(float, true)
+    vim.api.nvim_set_current_win(sidebar)
+    H.feed('<C-o>')
+    H.eq(sidebar_prompt, H.state().buf, 'the sidebar\'s prompt, not the float\'s')
+end)
+
+H.test('in a window of its own, a terminal\'s <C-o> is Vim\'s', function()
+    H.reset(file)
+    prompt()
+    H.send('hello')
+    local term = H.state().buf
+    vim.cmd('stopinsert')
+    H.reset(file)
+    -- The file, then the terminal, in an ordinary window: <C-o> walks back.
+    vim.cmd('normal! 5G')
+    vim.cmd('buffer ' .. term)
+    H.feed('<C-o>')
+    H.eq(file, H.state().buf, 'back through the jump list')
+    H.ok(not H.state().prompt, 'not into a prompt')
+end)
+
 H.finish()

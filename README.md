@@ -407,6 +407,7 @@ where `<Up>` walks the history.
 | `<Esc>` | n | Close the window if the buffer is empty |
 | `<C-c>` | n | Close the window, discarding the draft |
 | `<C-x><C-x>` | n | Toggle the window between its previous size and full screen |
+| `<C-o>` | n | Show the prompt's terminal in its window; `<C-o>` there comes back |
 
 History is filtered by what you have typed: with a draft in the buffer, only the
 entries containing it are walked, and the match is highlighted.
@@ -427,7 +428,10 @@ prompt is behind which label; to search, use `<Up>`.
 Once a prompt is sent, the terminal takes its window, and `<C-o>` from there
 comes back to the prompt emptied, with the selection it carried gone: a
 follow-up written there goes alone. What was sent is in history, one `<Up>`
-away.
+away. `<C-o>` works before a send too: from the prompt it shows the terminal,
+to read what it has said, and `<C-o>` there brings back your draft as you left
+it. It only ever toggles between the two, never to the file you opened the
+prompt from.
 
 #### `@` mentions
 
@@ -453,7 +457,8 @@ history, which keeps the words around it.
 
 `edit_selection()`'s window is text you are editing rather than a prompt: it
 keeps `<CR>`, `<C-s>`, `<Esc>`, `<C-c>` and `<C-x><C-x>`, has no history, and
-always starts in normal mode.
+always starts in normal mode. With no terminal behind it, `<C-o>` there does
+nothing, as it does in `edit_input()`'s.
 
 ### Terminal buffer
 
@@ -467,6 +472,7 @@ has only those three.
 | `[p` / `]p` | n | Jump to the previous / next shell prompt |
 | `<C-r>` | n | `cd` the terminal to the project root and re-learn the prompt |
 | `x` | n | Toggle the window between its previous size and full screen |
+| `<C-o>` | n | Back to the prompt the terminal was shown for in this window; in a window of your own, Vim's jump back |
 | `<CR>` / `<C-c>` / `<Esc>` | n | Close the terminal window |
 | `<C-x>i` | t | Paste register `a` at the prompt |
 | `<C-x>w` | t | Switch window, or tab when there is only one window |

@@ -601,7 +601,6 @@ end
 -- Map `key` to toggle the window between its current size and full screen.
 local function create_keymap_x(bufnr, key)
     vim.keymap.set('n', key, layout.toggle_full_size, {silent = true, buffer = bufnr})
-    vim.keymap.set('n', '<C-o>', '<C-6>', {silent = true, buffer = bufnr})
 end
 
 local prompts = {}
@@ -671,6 +670,22 @@ local function setup_terminal_keymaps(buf)
     })
 end
 
+-- A window's prompt, the one its terminal's <C-o> goes back to, lasts while
+-- the window shows a prompt or a terminal. Once it shows anything else -- a
+-- file the user opened in it, the buffer a borrowed window goes back to --
+-- it is no longer foyer's, and a terminal shown there later has no prompt of
+-- its own. Registered once, for every window.
+vim.api.nvim_create_autocmd('BufWinEnter', {
+    group = vim.api.nvim_create_augroup('foyer_window_prompt', { clear = true }),
+    callback = function(ev)
+        local win = vim.api.nvim_get_current_win()
+        if vim.w[win].foyer_prompt and not vim.b[ev.buf].foyer_prompt
+            and vim.bo[ev.buf].buftype ~= 'terminal' then
+            vim.w[win].foyer_prompt = nil
+        end
+    end,
+})
+
 local function init_term_buf(term_bufnr, win_id, prev_buf)
     -- Set for this buffer in this window only, so a borrowed window does not
     -- keep it once its own buffer is back.
@@ -683,6 +698,22 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
 
     create_keymap_x(term_bufnr, 'x')
     setup_terminal_keymaps(term_bufnr)
+
+    -- Back to the prompt this terminal was shown for, named rather than taken
+    -- to be the alternate buffer, which a terminal reached any other way
+    -- need not have as its prompt. Kept on the window, not in the mapping: a
+    -- terminal is one buffer however many windows show it, and each of
+    -- foyer's has its own prompt. In a window that is not foyer's, the key is
+    -- Vim's again. The prompt's own BufEnter puts its title back.
+    vim.w[win_id].foyer_prompt = prev_buf
+    vim.keymap.set('n', '<C-o>', function()
+        local prompt = vim.w.foyer_prompt
+        if prompt and vim.api.nvim_buf_is_valid(prompt) then
+            vim.api.nvim_set_current_buf(prompt)
+        else
+            vim.api.nvim_feedkeys(vim.v.count1 .. vim.keycode('<C-o>'), 'n', false)
+        end
+    end, {silent = true, buffer = term_bufnr})
 
     vim.keymap.set('n', '<C-r>', function()
         local root = project_root(vim.fn.getcwd())
@@ -719,10 +750,15 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
 
     -- Entering terminal mode scrolls to the bottom, which is the only way to
     -- bring the latest output into view without moving the cursor ourselves.
+    -- Only while the terminal is still the buffer in front: <C-o> may have
+    -- swapped the prompt back in by then, and Insert mode there, or leaving
+    -- it, is the user's business.
+    local function in_terminal() return vim.api.nvim_get_current_buf() == term_bufnr end
     vim.defer_fn(function()
+        if not in_terminal() then return end
         vim.cmd('startinsert')
         vim.defer_fn(function()
-            vim.cmd('stopinsert')
+            if in_terminal() then vim.cmd('stopinsert') end
         end, 200)
     end, 200)
 end
@@ -743,6 +779,20 @@ local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
     vim.keymap.set('n', '<CR>', on_enter, {silent = true, buffer = bufnr})
     vim.keymap.set('i', '<C-s>', on_enter, {silent = true, buffer = bufnr})
     create_keymap_x(bufnr, '<C-x><C-x>')
+
+    -- The terminal this prompt is for, in this window, where <C-o> comes back
+    -- from: to look at what it has said before writing to it. Only that: the
+    -- window's alternate buffer and jump list lead to the file the prompt was
+    -- opened from, which has no place in here. A buffer with no terminal of
+    -- its own -- edit_input()'s, edit_selection()'s -- ignores the key.
+    vim.keymap.set('n', '<C-o>', function()
+        local term = vim.b[bufnr].foyer_term
+        if not (term and vim.api.nvim_buf_is_valid(term)) then return end
+        local win = vim.api.nvim_get_current_win()
+        vim.api.nvim_set_current_buf(term)
+        set_window_title(win, vim.b[bufnr].foyer_term_title or get_term_name(term))
+        init_term_buf(term, win, bufnr)
+    end, {silent = true, buffer = bufnr})
 end
 
 -- History navigation for one command buffer, over the history of {term_buf}.
@@ -1148,6 +1198,10 @@ function M.send_terminal_command(term_key, opts)
             })
         end
         create_window(win_type, title, function(bufnr, win_id, reused)
+            -- The terminal <C-o> shows. On the buffer, as a sidebar prompt
+            -- reused for another terminal is for that one now.
+            vim.b[bufnr].foyer_term = target_buf
+            vim.b[bufnr].foyer_term_title = term
             -- A sidebar prompt outlives the send that opened it, so this send's
             -- ref, seed and history have to reach the buffer rather than the
             -- closure that set the window up.
@@ -1187,8 +1241,8 @@ function M.send_terminal_command(term_key, opts)
                 if opts.selection then
                     vim.notify('Terminal busy, ' .. opts.selection .. ' not sent', vim.log.levels.WARN)
                 end
-                -- The prompt is still the terminal's alternate buffer, which
-                -- <C-o> rewinds to, so it must work once the user gets there.
+                -- The prompt is where the terminal's <C-o> goes, so it must
+                -- work once the user gets there.
                 -- It is set up in Normal mode: insert would land in the
                 -- terminal that is about to take the window.
                 init_prompt(false)
