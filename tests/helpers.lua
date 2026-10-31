@@ -1,6 +1,6 @@
 -- Shared by every spec. A spec runs in a fresh headless Neovim, started by
--- tests/run.sh with a throwaway cache directory, so the history and context
--- files it writes are never the user's.
+-- tests/run.sh with a throwaway cache directory, so the history it writes is
+-- never the user's.
 local H = {}
 
 local root = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':p:h:h')

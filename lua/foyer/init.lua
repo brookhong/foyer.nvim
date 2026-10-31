@@ -10,10 +10,6 @@ local options = require('foyer.config')
 local config = options.options
 local project_root = options.project_root
 local context = require('foyer.context')
-local launch_info = context.launch_info
-local term_context_path = context.term_context_path
-local publish = context.publish
-local export_context = context.export_context
 local selection_appendix = context.selection_appendix
 local capture = context.capture
 local mention = require('foyer.mention')
@@ -81,6 +77,9 @@ local function load_history()
 end
 
 local function save_history()
+    -- Nothing else of ours creates the cache directory, and a fresh Neovim may
+    -- not have one yet: io.open() would then fail, and history go unsaved.
+    vim.fn.mkdir(vim.fn.fnamemodify(cache_file, ':h'), 'p')
     local file = io.open(cache_file, 'w')
     if file then
         file:write(vim.fn.json_encode(history))
@@ -1083,9 +1082,7 @@ local function entry_is_global(entry)
 end
 
 -- Where a terminal's identity lives. A global entry keeps one terminal for the
--- whole session, wherever you are; every other one is per project root. The
--- bucket also keys the context file, so a global agent reads one file rather
--- than a new one per repo.
+-- whole session, wherever you are; every other one is per project root.
 local function entry_bucket(entry, root)
     if entry_is_global(entry) then return "" end
     return root
@@ -1112,7 +1109,6 @@ local function open_term(root, term_key, launch_info)
 
     vim.cmd("lcd " .. vim.fn.fnameescape(entry_cwd(entry, root)))
 
-    export_context(publish(term_context_path(bucket, term_key), launch_info))
     vim.cmd("term " .. entry_command(entry))
     vim.cmd("lcd " .. vim.fn.fnameescape(pd))
 
@@ -1161,8 +1157,6 @@ function M.send_terminal_command(term_key, opts)
         end
         return
     end
-
-    publish(term_context_path(bucket, term_key), opts.launch_info)
 
     local OSC_commands = get_osc_commands(target_buf)
     local command = opts.command
@@ -1443,10 +1437,7 @@ function M.terminal_command(opts)
     end
 
     -- Step into the terminal rather than prompt for it, when asked to.
-    -- Published before the switch, so an agent already in there re-reads the
-    -- file and learns where we are now.
     if opts.switch then
-        publish(term_context_path(bucket, term_key), opts.launch_info)
         vim.api.nvim_set_current_buf(buf)
         return buf
     end

@@ -132,26 +132,17 @@ same as if you'd selected those lines before you started.
 **The pain.** Agents run in a terminal and can't see your editor. Every request
 has to start with where you are.
 
-**With foyer.** Every terminal foyer starts gets `$FOYER_CONTEXT` in its
-environment. It names a small JSON file holding the file you were in, your
-cursor line and your selection, refreshed each time you reach the agent through
-foyer:
+**With foyer.** Tell it in the prompt, in two keys. Type `@` and the menu
+puts the file you came from first, at your cursor line; `<CR>` puts it in:
 
-```json
-{"captured_at":"…","launch_info":{"project_root":"/repo",
- "current_file":"src/parser.c","current_line":118,
- "start_line":118,"end_line":131}}
+```
+fix this @src/parser.c:118
 ```
 
-Install the included **agent skill** (opencode, Claude Code, …). It costs
-one line of the model's context until you actually say "this file", "here" or
-"my selection". Then the agent reads the file instead of asking you. With no
-skill support, a three-line rule in `AGENTS.md` or `CLAUDE.md` does the same
-job.
-
-Nothing gets scraped or guessed: it's the context *you* attached, with a
-timestamp, so an agent can tell that "fix this" was said twenty minutes ago and
-check before acting on it.
+Or start from a selection, as in Scenario 2, and the lines themselves go with
+the prompt. Either way it's in the text the agent reads, so any agent
+understands it. Nothing gets scraped or guessed: the agent sees what *you* put
+in.
 
 ---
 
@@ -317,14 +308,14 @@ Being clear about this saves you an afternoon:
 - **It is not an agent or an AI client.** It talks to whatever CLI you already
   use, through its terminal. Bring your own agent.
 - **It doesn't scrape your screen.** The context an agent sees is what you
-  attached, published only for terminals foyer started.
+  put in the prompt: a selection, an `@` mention.
 - **Reading back a half-typed line is experimental.** `edit_input()` works by
   sending the clear-input key and watching where the cursor lands, in a shell
   or an agent alike. That's dependable with ordinary shells, but an unusual
   prompt or a very slow one can confuse it.
-- **Some things are fixed for now.** The keymaps inside foyer's windows, a few
-  timings, and the register used by `edit_selection()` (`a`) can't be changed
-  yet.
+- **Some things are fixed for now.** The keymaps inside foyer's windows, but
+  for the history picker's (`history.pick_key`), a few timings, and the
+  register used by `edit_selection()` (`a`) can't be changed yet.
 
 ---
 
@@ -346,9 +337,6 @@ Being clear about this saves you an afternoon:
     },
 }
 ```
-
-Link the agent skill as well, so your agent can resolve "this file" by itself.
-The [README](../README.md#giving-an-agent-your-editor-context) has the one-liner.
 
 Then try it:
 

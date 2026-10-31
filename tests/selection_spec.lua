@@ -74,4 +74,76 @@ H.test('history keeps the prompt without the selection', function()
     H.eq({ 'what is this?' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), 'recalled')
 end)
 
+-- A buffer never written: no file to name, so the lines are all there is.
+local function ask_unnamed(keys, text)
+    H.reset()
+    vim.cmd('enew')
+    local buf = vim.api.nvim_get_current_buf()
+    vim.bo[buf].filetype = 'lua'
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, text)
+    H.press(function() foyer.terminal_command({ key = 'q' }) end, keys)
+    local title = H.state().title
+    H.send('what is this?')
+    local sent = (H.last_text() or ''):gsub('\27%[20[01]~', ''):gsub('\r$', '')
+    vim.cmd('stopinsert')
+    return sent, title
+end
+
+H.test('a selection in a buffer never written goes with its lines', function()
+    local sent, title = ask_unnamed('1GVj', { 'local x = 1', 'return x' })
+    H.eq('what is this?\n\nSelected in my editor: lines 1-2 of a buffer with no file\n'
+        .. '```lua\nlocal x = 1\nreturn x\n```', sent, 'sent')
+    H.ok(title:find('+ [No Name]:1-2', 1, true), 'the frame says where from: ' .. title)
+end)
+
+H.test('past selection_max_lines, a buffer never written goes as a file the label names', function()
+    local sent = ask_unnamed('1GV3j', { 'a', 'b', 'c', 'd' })
+    local label, path = sent:match('^what is this%?\n\n(Selected in my editor: lines 1%-4 of a buffer with no file),'
+        .. ' copied whole to (%S+%.lua)$')
+    H.ok(label, 'the label, naming the copy, and no lines inline: ' .. sent)
+    H.eq({ 'a', 'b', 'c', 'd' }, vim.fn.readfile(path), 'the copy holds the lines')
+    H.ok(vim.startswith(path, vim.fs.dirname(vim.fn.tempname())), 'under tempname(): ' .. path)
+end)
+
+H.test('a copy takes .txt for a filetype with no extension of its own', function()
+    H.reset()
+    vim.cmd('enew')
+    vim.bo.filetype = 'python'
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { '1', '2', '3', '4' })
+    H.press(function() foyer.terminal_command({ key = 'q' }) end, '1GV3j')
+    H.send('what is this?')
+    vim.cmd('stopinsert')
+    H.ok(H.last_text():match('copied whole to %S+%.txt\27%[201~\r$'), H.last_text())
+end)
+
+H.test('with selection_max_lines = 0, a buffer never written always goes as a file', function()
+    foyer.setup({ selection_max_lines = 0 })
+    local sent = ask_unnamed('1GV', { 'only' })
+    foyer.setup({ selection_max_lines = 3 })
+    local path = sent:match('copied whole to (%S+)$')
+    H.ok(path, sent)
+    H.eq({ 'only' }, vim.fn.readfile(path), 'the copy')
+end)
+
+H.test('if the copy cannot be written, the lines go inline', function()
+    local tempname = vim.fn.tempname
+    vim.fn.tempname = function() return '/nonexistent/dir/x' end
+    local sent = ask_unnamed('1GV3j', { 'a', 'b', 'c', 'd' })
+    vim.fn.tempname = tempname
+    H.eq('what is this?\n\nSelected in my editor: lines 1-4 of a buffer with no file\n'
+        .. '```lua\na\nb\nc\nd\n```', sent, 'inline')
+end)
+
+H.test('a selection in a scratch buffer still goes nowhere', function()
+    H.reset()
+    vim.cmd('enew')
+    vim.bo.buftype = 'nofile'
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'scratch' })
+    H.press(function() foyer.terminal_command({ key = 'q' }) end, '1GV')
+    H.ok(not H.state().title:find('+', 1, true), 'nothing advertised: ' .. H.state().title)
+    H.send('what is this?')
+    H.eq('what is this?\r', H.last_text(), 'the prompt alone')
+    vim.cmd('stopinsert')
+end)
+
 H.finish()

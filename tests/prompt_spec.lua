@@ -421,4 +421,14 @@ H.test('in a window of its own, a terminal\'s <C-o> is Vim\'s', function()
     H.ok(not H.state().prompt, 'not into a prompt')
 end)
 
+H.test('history is saved even when the cache directory does not exist yet', function()
+    H.reset(file)
+    local cache = vim.fn.stdpath('cache')
+    vim.fn.delete(cache, 'rf')
+    prompt(); H.send('remember me')
+    local saved = vim.fn.filereadable(cache .. '/foyer.json') == 1
+        and table.concat(vim.fn.readfile(cache .. '/foyer.json'), '\n') or ''
+    H.ok(saved:find('remember me', 1, true), 'written to ' .. cache .. '/foyer.json: ' .. saved)
+end)
+
 H.finish()

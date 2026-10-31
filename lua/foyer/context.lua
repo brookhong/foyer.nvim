@@ -1,14 +1,11 @@
 -- What the user is looking at, and what is sent about it: the launch_info
--- captured for a send, the selection block an agent reads, and the context
--- files published for the terminals.
+-- captured for a send, which the `commands` resolver is given, and the
+-- selection block an agent reads.
 local options = require('foyer.config')
 local config = options.options
 local project_root = options.project_root
 
 local M = {}
-
-local context_dir = vim.fs.joinpath(vim.fn.stdpath('cache'), 'foyer')
-local published = {}
 
 local function in_visual()
     local mode = vim.fn.mode()
@@ -53,29 +50,44 @@ local function file_info(buf)
     }
 end
 
+-- The lines of the Visual selection, first to last. line('v') is the anchor,
+-- which sits below the cursor in a selection dragged upward; a reversed range
+-- is no use to whoever reads it.
+local function visual_lines()
+    local anchor, cursor = vim.fn.line('v'), vim.fn.line('.')
+    return math.min(anchor, cursor), math.max(anchor, cursor)
+end
+
 -- What the user is looking at, in the conventional launch_info shape.
+-- Empty for a buffer with no file: a terminal, a scratch buffer, one never
+-- written.
 local function launch_info()
-    -- The empty table publishes nothing, so the last real context stays in
-    -- place.
     local info = file_info(0)
     if not info then return {} end
     info.current_line = vim.fn.line('.')
     if in_visual() then
-        -- line('v') is the anchor, which sits below the cursor in a selection
-        -- dragged upward; a reversed range is no use to whoever reads it.
-        local anchor, cursor = vim.fn.line('v'), vim.fn.line('.')
-        info.start_line = math.min(anchor, cursor)
-        info.end_line = math.max(anchor, cursor)
+        info.start_line, info.end_line = visual_lines()
     end
     return info
 end
 
+-- A buffer that would be a file once written: no name yet, and nothing that
+-- makes it something else -- a terminal, a scratch or help buffer.
+local function is_unnamed(buf)
+    return vim.bo[buf].buftype == '' and vim.api.nvim_buf_get_name(buf) == ''
+end
+
 -- Lines {first}..{last} of {buf}, ready for selection_block(): as the buffer
 -- has them now, unsaved edits and all, since that is what the user is pointing
--- at, whatever the disk says. Nil for a buffer with no file.
+-- at, whatever the disk says. A buffer never written has no file to name, but
+-- its lines are all the more worth sending: there is nowhere else to read
+-- them. Nil for a terminal, a scratch buffer and the like.
 local function buffer_selection(buf, first, last)
     local info = file_info(buf)
-    if not info then return nil end
+    if not info then
+        if not is_unnamed(buf) then return nil end
+        info = {}
+    end
     info.start_line, info.end_line = first, last
     return {
         info = info,
@@ -88,14 +100,33 @@ local function buffer_selection(buf, first, last)
     }
 end
 
--- The selected range in the project's own terms, `src/main.c:30-36`: short
--- enough for a window title, which is where the user reads it.
+-- The selected range in the project's own terms, `src/main.c:30-36`, or
+-- `[No Name]:30-36` for a buffer never written: short enough for a window
+-- title, which is where the user reads it.
 local function selection_ref(info)
-    if not (info.current_file and info.start_line) then return nil end
+    if not info.start_line then return nil end
+    local file = info.current_file or '[No Name]'
     if info.end_line == info.start_line then
-        return ('%s:%d'):format(info.current_file, info.start_line)
+        return ('%s:%d'):format(file, info.start_line)
     end
-    return ('%s:%d-%d'):format(info.current_file, info.start_line, info.end_line)
+    return ('%s:%d-%d'):format(file, info.start_line, info.end_line)
+end
+
+-- {lines} in a file of their own, for an agent to read: under tempname(), so
+-- only this user can read it and Neovim removes it on exit, which is late
+-- enough for an agent to come back to it. Named with the extension of
+-- {filetype} where that extension says it back, `.txt` otherwise. Nil if it
+-- cannot be written.
+local function copy_lines(lines, filetype)
+    local ext = 'txt'
+    if filetype and filetype ~= ''
+        and vim.filetype.match({ filename = 'x.' .. filetype }) == filetype then
+        ext = filetype
+    end
+    local path = vim.fn.tempname() .. '.' .. ext
+    local ok, rc = pcall(vim.fn.writefile, lines, path)
+    if not ok or rc ~= 0 then return nil end
+    return path
 end
 
 -- The selection as an agent is to read it: said in words, from a path that
@@ -108,19 +139,35 @@ end
 -- altogether. The text settles both. Past `selection_max_lines` it is left
 -- out, so a selection the size of a file is not pasted whole; the label alone
 -- still says where to look.
+--
+-- A buffer never written has no file to name: the label says so, so the
+-- agent does not go looking for one. Past `selection_max_lines` a label alone
+-- would point it at nothing, so the lines are copied to a file of their own,
+-- which the label names: a long paste is what some agents' input boxes take
+-- worst. Should the copy fail, they go inline after all.
 local function selection_block(sel)
     local info = sel.info
-    local file = info.current_file
-    if info.project_root then file = vim.fs.joinpath(info.project_root, file) end
     local where = info.end_line == info.start_line
         and ('line %d'):format(info.start_line)
         or ('lines %d-%d'):format(info.start_line, info.end_line)
-    local label = ('Selected in my editor: %s, %s'):format(file, where)
-    -- Said outright, so an agent that does open the file is not misled by it.
-    if sel.modified then label = label .. ' (unsaved; the file on disk differs)' end
+    local label
+    if info.current_file then
+        local file = info.current_file
+        if info.project_root then file = vim.fs.joinpath(info.project_root, file) end
+        label = ('Selected in my editor: %s, %s'):format(file, where)
+        -- Said outright, so an agent that does open the file is not misled by
+        -- it.
+        if sel.modified then label = label .. ' (unsaved; the file on disk differs)' end
+    else
+        label = ('Selected in my editor: %s of a buffer with no file'):format(where)
+    end
 
     local max = config.selection_max_lines or 0
-    if max <= 0 or #sel.lines > max then return label end
+    if max <= 0 or #sel.lines > max then
+        if info.current_file then return label end
+        local copy = copy_lines(sel.lines, sel.filetype)
+        if copy then return ('%s, copied whole to %s'):format(label, copy) end
+    end
     local text = table.concat(sel.lines, '\n')
     -- A fence longer than any run of backticks in the text, so code that
     -- holds a fence of its own cannot close this one early.
@@ -128,67 +175,6 @@ local function selection_block(sel)
     while text:find(fence, 1, true) do fence = fence .. '`' end
     return ('%s\n%s%s\n%s\n%s'):format(label, fence, sel.filetype or '', text, fence)
 end
-
-local function escape_key(s)
-    return (tostring(s):gsub('[^%w%-_]', function(c) return ('%%%02x'):format(c:byte()) end))
-end
-
--- Keyed by the terminal's identity, so the same terminal reopened reuses its
--- file. The pid separates two Neovim instances.
-local function context_path(key)
-    return vim.fs.joinpath(context_dir, ('%d-%s.json'):format(vim.fn.getpid(), key))
-end
-
--- The root is hashed rather than flattened: a deep path would otherwise make a
--- filename longer than the filesystem allows. A global terminal has no root to
--- hash, so its empty bucket gives it one file for the session.
-local function term_context_path(root, term_key)
-    return context_path(('t-%s-%s'):format(vim.fn.sha256(root):sub(1, 8), escape_key(term_key)))
-end
-
--- Write a terminal's context. An empty info means "keep the context this
--- terminal already has". Publishing is a side channel, so it may not take the
--- send down: info is the caller's table and vim.json.encode can refuse it.
-local function publish(path, info)
-    info = info or launch_info()
-    if type(info) ~= 'table' or vim.tbl_isempty(info) then return path end
-    local ok, err = pcall(function()
-        vim.fn.mkdir(context_dir, 'p')
-        local json = vim.json.encode({
-            captured_at = os.date('%Y-%m-%dT%H:%M:%S%z'),
-            captured_unix = os.time(),
-            launch_info = info,
-        })
-        assert(vim.fn.writefile({ json }, path) == 0, 'could not write ' .. path)
-    end)
-    if ok then
-        published[path] = true
-    else
-        -- The traceback prefix is noise to whoever set launch_info.
-        local reason = tostring(err):gsub('^.-:%d+: ', '')
-        vim.notify('foyer.nvim: could not publish context: ' .. reason, vim.log.levels.WARN)
-    end
-    return path
-end
-
--- Name the context file in the environment of a terminal about to be spawned.
--- A job reads its environment once, at startup, so only the spawning paths may
--- set this; cleared on the next tick so it cannot leak to unrelated jobs.
-local function export_context(path)
-    vim.env.FOYER_CONTEXT = path
-    vim.schedule(function() vim.env.FOYER_CONTEXT = nil end)
-end
-
-vim.api.nvim_create_autocmd('VimLeavePre', {
-    group = vim.api.nvim_create_augroup('foyer_context', { clear = true }),
-    callback = function()
-        -- These describe a live editing session; leaving them behind would let
-        -- an agent read a cursor position from a Neovim that no longer exists.
-        for path in pairs(published) do
-            os.remove(path)
-        end
-    end,
-})
 
 -- The opts whose selection capture() wrote, rather than the caller: only
 -- those may be renamed for the terminal they end up going to.
@@ -233,10 +219,13 @@ local function capture(opts)
     -- for no window has nowhere to put it.
     if opts.interactive or opts.command == nil or opts.command == '' then
         if opts.selection == nil then
-            opts.selection = selection_ref(opts.launch_info)
-            if opts.selection then
-                local info = opts.launch_info
-                captured_selection[opts] = buffer_selection(0, info.start_line, info.end_line)
+            -- From the buffer rather than launch_info, which is empty for one
+            -- never written: that has no file to name, yet its lines are all
+            -- the more worth sending.
+            local sel = buffer_selection(0, visual_lines())
+            if sel then
+                opts.selection = selection_ref(sel.info)
+                captured_selection[opts] = sel
             end
         end
         -- The window opened next is no place to still be in Visual mode.
@@ -251,9 +240,6 @@ M.strip_selections = strip_selections
 M.buffer_selection = buffer_selection
 M.selection_ref = selection_ref
 M.selection_block = selection_block
-M.term_context_path = term_context_path
-M.publish = publish
-M.export_context = export_context
 M.selection_appendix = selection_appendix
 M.capture = capture
 

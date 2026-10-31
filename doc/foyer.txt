@@ -58,10 +58,10 @@ commands ~
 
     cwd     Directory the terminal is spawned in, instead of the project root.
     scope   `'global'` keeps one terminal for the whole session, wherever you
-            are, and one context file with it. Anything else, or nothing, is
-            the default: one terminal per project root. A global
-            terminal's prompt takes the current window rather than a float
-            or a sidebar, and the terminal takes it in turn once you send;
+            are. Anything else, or nothing, is the default: one terminal per
+            project root. A global terminal's prompt takes the current window
+            rather than a float or a sidebar, and the terminal takes it in
+            turn once you send;
             closing either hands the window back to the buffer it showed.
             Use it for an agent you want a single long conversation with,
             apart from any project: >lua
@@ -91,7 +91,8 @@ picker_delay ~
 selection_max_lines ~
     A selection is sent with its lines up to this many, and as its location
     alone beyond, see |foyer-opts|. `0` never sends the lines. Defaults to
-    `40`.
+    `40`. A buffer not yet written has no location to send instead, so a
+    longer one is copied to a temporary file, which the label names.
 
 mention ~
     Whether `@` in a terminal's prompt lists the open files to mention, see
@@ -155,8 +156,8 @@ launch_info ~
     |foyer.send_terminal_command()| capture it
     themselves, so a mapping does no bookkeeping. Passing one explicitly
     overrides the capture. It reaches the `commands` resolver
-    untouched -- the plugin never inspects it -- and is published per terminal
-    for an agent to read later, see |foyer-context|. The shape is: >lua
+    untouched -- the plugin never inspects it -- so a function there can pick
+    the terminal by it. The shape is: >lua
         {
             project_root = '/repo',
             current_file = 'src/main.c',   -- relative to project_root
@@ -170,7 +171,7 @@ launch_info ~
     |foyer-setup| root to name the file against, `project_root` is absent and
     `current_file` is absolute instead.
 
-    Any other key you add travels with it, all the way to the agent.
+    Any other key you add reaches the resolver too.
 
 Command {opts} accepted by |foyer.terminal_command()| and
 |foyer.send_terminal_command()|:
@@ -211,6 +212,15 @@ unsaved edits can put out of step -- the label says so when they have. The
 path is absolute, so it resolves wherever the agent was started. A selection
 longer than `selection_max_lines` is sent as the label alone.
 
+A buffer not yet written has no file to point at, so its lines are all the
+agent gets: `Selected in my editor: lines 3-8 of a buffer with no file`, then
+the lines, and `[No Name]:3-8` in the title. Past `selection_max_lines` a
+label alone would point the agent at nothing, so the lines are copied to a
+file under |tempname()| and the label names it -- `..., copied whole to
+/tmp/.../3.lua` -- for the agent to read rather than a long paste for its input
+box to swallow. The file is yours alone and goes when Neovim exits. A terminal
+or scratch buffer ('buftype' set) sends no selection.
+
 None of it sits in the command buffer, so the line stays yours to edit and to
 walk history with, and history remembers the prompt without a selection that
 will not be true next time. Type nothing and nothing is sent; a selection
@@ -247,9 +257,6 @@ terminal_command({opts})
             foyer.terminal_command({ key = 'F' })
         end, { desc = 'opencode terminal' })
 <
-    The context is published on every call, switch or spawn, so an agent
-    already running in there learns where you are now.
-
                                                *foyer.send_terminal_command()*
 send_terminal_command({term_key}, {opts})
     Drive a specific terminal without prompting for a character. With
@@ -327,55 +334,11 @@ is_idle({buf}, {threshold_ms})
 ==============================================================================
 5. AGENT CONTEXT                                               *foyer-context*
 
-On every send, the |foyer.launch_info| attached to it is written as JSON to a
-file per terminal, and every terminal this plugin spawns has $FOYER_CONTEXT in
-its environment naming that file: >console
-
-    $ cat "$FOYER_CONTEXT"
-    {"captured_at":"2026-09-22T15:59:07+0800","captured_unix":1790063947,
-     "launch_info":{"project_root":"/repo","current_file":"src/main.c",
-                    "current_line":88,"start_line":30,"end_line":36}}
-<
-That is the whole interface -- a file an agent reads when it needs it. What
-remains is telling the agent it is there.
-
-`skills/foyer-editor-context/SKILL.md` in this repository does that as an
-agent skill: only its one-line description sits in the model's context, and
-the body is loaded on demand, when a request actually points at the editor.
-Symlink it into whichever skill directory your CLI scans --
-`~/.config/opencode/skills/`, `~/.kiro/skills/`, `~/.claude/skills/` --
-keeping the directory name: >
-
-    mkdir -p ~/.config/opencode/skills/foyer-editor-context
-    ln -sf /path/to/foyer.nvim/skills/foyer-editor-context/SKILL.md \
-        ~/.config/opencode/skills/foyer-editor-context/SKILL.md
-<
-A CLI with no skill mechanism can carry the same thing as an always-loaded
-rule (`AGENTS.md`, `CLAUDE.md`, `~/.kiro/steering/*.md`), at the cost of those
-tokens on every request: >
-
-    When $FOYER_CONTEXT is set it names a JSON file holding the file, line
-    and selection the user had when they wrote their prompt. Read it with
-    `cat "$FOYER_CONTEXT"` before acting on "this file", "here", "this line"
-    or "my selection". If it is unset, ask which file is meant.
-<
-Each terminal has its own file, so an agent in one project never reads a path
-attached for another -- a `scope = 'global'` terminal has one file for the
-session instead, since it is the same conversation everywhere. A terminal
-opened by hand has neither the variable nor a send to trigger a publish, and
-its agent has nothing to read.
-
-The files live in `stdpath('cache')/foyer/`, one per terminal, and are removed
-on |VimLeavePre|. A terminal closed and reopened keeps its file, so a long
-session does not litter the directory.
-
-Publishing never takes a send down with it. A `launch_info` holding something
-|vim.json.encode()| refuses, or a cache directory that cannot be written,
-warns and the command is sent anyway.
-
-The snapshot ages. `captured_at` and `captured_unix` are published so a model
-can notice that "fix this function" was said twenty minutes ago, and ask
-rather than assume.
+Everything foyer tells an agent about your editor is in the prompt itself. A
+Visual selection rides along below what you wrote, labelled with its file and
+lines, see |foyer-opts|; `@` puts in a file at a line, the one you opened the
+prompt from first, at your cursor, see |foyer-mention|. "Fix this" and `@<CR>`
+make `fix this @src/main.c:88`, which every agent understands as it is.
 
 ==============================================================================
 6. MAPPINGS                                                   *foyer-mappings*

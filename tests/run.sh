@@ -5,8 +5,7 @@
 #   tests/run.sh tests/picker_spec.lua ...
 cd "$(dirname "$0")/.." || exit 1
 
-# A throwaway cache, so the history and context files the specs write are
-# never the user's.
+# A throwaway cache, so the history the specs write is never the user's.
 XDG_CACHE_HOME=$(mktemp -d)
 export XDG_CACHE_HOME
 trap 'rm -rf "$XDG_CACHE_HOME"' EXIT
