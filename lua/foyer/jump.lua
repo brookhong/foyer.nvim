@@ -93,6 +93,13 @@ local function hideCursor()
     end
 end
 
+-- For the prompt picker, which wears the same labels and reads keys the same
+-- way.
+M.HL = HL
+M.setup_highlights = setupHighlights
+M.read_key = readKey
+M.hide_cursor = hideCursor
+
 -- a colorscheme change clears highlight groups, possibly while the picker is open
 api.nvim_create_autocmd("ColorScheme", {
     group = api.nvim_create_augroup("foyer_jump_hl", { clear = true }),

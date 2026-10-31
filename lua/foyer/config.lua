@@ -9,6 +9,9 @@ local config = {
     -- the backdrop dimming the editor behind it (false: none), and what a key
     -- that is no label opens (nil: Telescope's oldfiles, or vim.ui.select).
     jump = { characters = 'asdfgqwertzxcvb', backdrop = 60, fallback = nil },
+    -- The command buffer's history: the key listing the most used prompts
+    -- behind hint labels (false: no such key).
+    history = { pick_key = '<C-f>' },
 }
 
 -- Directory markers locating the project root that scopes terminals.

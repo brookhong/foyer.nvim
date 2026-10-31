@@ -106,18 +106,256 @@ local function log_command(cmd, term_bufnr)
 
     local entries = history[term_name]
 
+    -- Sending a prompt again moves it to the end, the latest, and adds to how
+    -- often it has been used: <Up> walks by the one, the picker ranks by both.
+    local count = 0
     for i = #entries, 1, -1 do
         if entries[i].cmd == cmd then
+            count = count + (entries[i].count or 1)
             table.remove(entries, i)
         end
     end
 
     table.insert(entries, {
         cmd = cmd,
-        time = os.time()
+        time = os.time(),
+        count = count + 1,
     })
 
     save_history()
+end
+
+-- How much a history entry is worth recalling: how often it was used, halved
+-- for every week since it last was. A prompt sent five times, last a week
+-- ago, outranks one sent once today (2.5 to 1); a habit that stopped a month
+-- ago has faded to a twentieth of its count.
+local HALF_LIFE = 7 * 24 * 3600
+local function frecency(entry, now)
+    local age = math.max(0, now - (entry.time or now))
+    return (entry.count or 1) * 0.5 ^ (age / HALF_LIFE)
+end
+
+-- A veil dimming the editor behind a picker, so the choice is the one thing
+-- that reads. Returns the function that lifts it. Blending needs
+-- 'termguicolors': without it the veil would be opaque and hide the editor
+-- outright, so it is left out instead.
+local function open_backdrop()
+    if not vim.o.termguicolors then return function() end end
+    local buf = vim.api.nvim_create_buf(false, true)
+    local win = vim.api.nvim_open_win(buf, false, {
+        relative = 'editor',
+        row = 0,
+        col = 0,
+        width = vim.o.columns,
+        -- The command line stays clear: messages land there.
+        height = math.max(1, vim.o.lines - vim.o.cmdheight),
+        style = 'minimal',
+        focusable = false,
+        noautocmd = true,
+        zindex = 49,
+    })
+    vim.wo[win].winhighlight = 'Normal:FoyerBackdrop'
+    vim.wo[win].winblend = 40
+    return function()
+        if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+        if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+    end
+end
+
+-- The most rows one prompt takes in the prompt picker; a longer one ends in
+-- "…" there. Enough to tell prompts apart, not so many that one buries the
+-- rest.
+local PICK_ROWS = 4
+
+-- {text} broken into rows no wider than {width} cells, at the last space that
+-- fits, or mid-word when there is none. Stops once it has {max} rows, and
+-- says whether anything was left over.
+local function wrap(text, width, max)
+    local rows = {}
+    while #rows < max and vim.fn.strdisplaywidth(text) > width do
+        local chars, fit = vim.fn.strchars(text), 0
+        while fit < chars and vim.fn.strdisplaywidth(vim.fn.strcharpart(text, 0, fit + 1)) <= width do
+            fit = fit + 1
+        end
+        local head = vim.fn.strcharpart(text, 0, math.max(fit, 1))
+        -- The prefix is the same bytes in {head} and {text}.
+        local space = head:match('^.*()%s')
+        if space and space > 1 then
+            table.insert(rows, (head:sub(1, space - 1):gsub('%s+$', '')))
+            text = text:sub(space + 1):gsub('^%s+', '')
+        else
+            table.insert(rows, head)
+            text = text:sub(#head + 1)
+        end
+    end
+    if #rows < max then
+        table.insert(rows, text)
+        return rows, false
+    end
+    return rows, text ~= ''
+end
+
+-- The rows {cmd} is shown in, no wider than {width}: each of its lines
+-- wrapped, blank ones dropped, at most PICK_ROWS, the last ending in "…"
+-- if that is not all of it.
+local function prompt_rows(cmd, width)
+    local rows, more = {}, false
+    for _, line in ipairs(vim.split(cmd:gsub('\t', '    '), '\n', {plain = true})) do
+        if line:find('%S') then
+            if #rows == PICK_ROWS then more = true; break end
+            local wrapped, left = wrap(line:gsub('%s+$', ''), width, PICK_ROWS - #rows)
+            vim.list_extend(rows, wrapped)
+            if left then more = true; break end
+        end
+    end
+    if more then
+        local last = rows[#rows]
+        while last ~= '' and vim.fn.strdisplaywidth(last) + 1 > width do
+            last = vim.fn.strcharpart(last, 0, vim.fn.strchars(last) - 1)
+        end
+        rows[#rows] = last .. '\u{2026}'
+    end
+    return rows
+end
+
+-- {entries}, the most worth recalling first, in a popup at {prompt_win}'s cursor
+-- with a hint label in front of each, as jump() draws them; one key picks.
+-- One entry per label character, so a label is always a single key, and only
+-- as many as the screen holds. Returns the entry and whether it was picked
+-- with Shift -- to replace the draft, not just to add to it -- or nil once the
+-- user backs out. A key that is no label is ignored: the choices are on screen, so
+-- it is a slip of the finger.
+local function pick_prompt(entries, prompt_win)
+    local jump = require('foyer.jump')
+    local chars = config.jump.characters
+    local n = math.min(#entries, #chars)
+
+    local counts = {}
+    local count_width = 0
+    for i = 1, n do
+        counts[i] = ('%d\u{00d7}'):format(entries[i].count or 1)
+        count_width = math.max(count_width, vim.fn.strdisplaywidth(counts[i]))
+    end
+
+    -- As wide as the prompt, so the text wraps where the user wrote it, but
+    -- never so narrow that it wraps every other word, nor off the screen.
+    -- ' a  text  3\u{00d7} ': label, text, then the count in a column of its
+    -- own; a prompt's further rows are indented under its first.
+    local max_width = math.max(1, math.min(math.max(vim.api.nvim_win_get_width(prompt_win) - 2, 50),
+        vim.o.columns - 4))
+    local text_cap = math.max(10, max_width - 4 - 2 - count_width - 1)
+    -- Just below the cursor, as a completion menu opens, so the list starts
+    -- where the eye already is; above it when it fits there and not below.
+    -- The screen cell the cursor is on counts the prompt's border and its
+    -- wrapped lines, and is there past the end of a line, where Insert mode
+    -- leaves it.
+    local cursor = vim.api.nvim_win_get_cursor(prompt_win)
+    local at = vim.fn.screenpos(prompt_win, cursor[1], cursor[2] + 1)
+    if at.row == 0 then
+        -- Off screen, somehow: the prompt's top left corner, then.
+        local pos = vim.api.nvim_win_get_position(prompt_win)
+        at = { row = pos[1] + 1, col = pos[2] + 1 }
+    end
+    local bottom = vim.o.lines - vim.o.cmdheight
+    -- Rows each side has for the list, the border taken off.
+    local below = bottom - at.row - 2
+    local above = at.row - 1 - 2
+    local max_rows = math.max(1, below, above)
+    local rows, total = {}, 0
+    local text_width = 0
+    for i = 1, n do
+        local r = prompt_rows(entries[i].cmd, text_cap)
+        if total + #r > max_rows then
+            if total > 0 then n = i - 1; break end
+            r = { r[1] }
+        end
+        rows[i] = r
+        total = total + #r
+        for _, row in ipairs(r) do
+            text_width = math.max(text_width, vim.fn.strdisplaywidth(row))
+        end
+    end
+
+    local lines, marks = {}, {}
+    for i = 1, n do
+        local first = (' %s  %s'):format(chars:sub(i, i), rows[i][1])
+        first = first .. (' '):rep(4 + text_width - vim.fn.strdisplaywidth(first) + 2)
+            .. (' '):rep(count_width - vim.fn.strdisplaywidth(counts[i]))
+        table.insert(marks, { #lines, #first })
+        table.insert(lines, first .. counts[i] .. ' ')
+        for j = 2, #rows[i] do
+            table.insert(lines, '    ' .. rows[i][j])
+        end
+    end
+
+    local footer = ' label: insert · Shift: replace · <Esc> '
+    local width = 4 + text_width + 2 + count_width + 1
+    width = math.min(vim.o.columns - 4, math.max(width, vim.fn.strdisplaywidth(footer)))
+
+    jump.setup_highlights()
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    local ns = vim.api.nvim_create_namespace('foyer_pick_prompt')
+    for _, m in ipairs(marks) do
+        vim.api.nvim_buf_set_extmark(buf, ns, m[1], 0, { end_col = 3, hl_group = jump.HL.label })
+        vim.api.nvim_buf_set_extmark(buf, ns, m[1], m[2], { end_col = #lines[m[1] + 1], hl_group = 'Comment' })
+    end
+    vim.bo[buf].modifiable = false
+
+    -- No backdrop: it would dim the prompt too, when that is a split.
+    local height = math.min(#lines, max_rows)
+    local row = at.row
+    if height > below and above > below then row = at.row - 1 - height - 2 end
+    -- Left-aligned with the cursor, pushed back left to stay on screen.
+    local col = math.max(0, math.min(at.col - 1, vim.o.columns - width - 2))
+    -- Whatever goes wrong while it is up, the cursor comes back and the popup
+    -- goes: a hidden cursor and a stray float would outlive the error.
+    local win, restore_cursor, picked, replace
+    local ok, err = pcall(function()
+        win = vim.api.nvim_open_win(buf, false, {
+            relative = 'editor',
+            width = width,
+            height = height,
+            row = row,
+            col = col,
+            style = 'minimal',
+            border = 'rounded',
+            title = ' Frequent prompts / Foyer ',
+            title_pos = 'center',
+            footer = footer,
+            footer_pos = 'right',
+            focusable = false,
+            noautocmd = true,
+            -- Above the prompt, should that be a float itself.
+            zindex = 60,
+        })
+        restore_cursor = jump.hide_cursor()
+
+        local esc, ctrl_c = vim.keycode('<Esc>'), vim.keycode('<C-c>')
+        while true do
+            vim.cmd('redraw')
+            local read, key = pcall(jump.read_key)
+            if not read or key == esc or key == ctrl_c then break end
+            -- Shift on a label replaces the draft, unless the shifted key is a
+            -- label of its own.
+            local idx = chars:find(key, 1, true)
+            local shifted = false
+            if not idx and key:lower() ~= key then
+                idx = chars:find(key:lower(), 1, true)
+                shifted = idx ~= nil
+            end
+            if idx and idx <= n then
+                picked, replace = entries[idx], shifted
+                break
+            end
+        end
+    end)
+
+    if restore_cursor then restore_cursor() end
+    if win and vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+    if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+    if not ok then error(err, 0) end
+    return picked, replace
 end
 
 load_history()
@@ -577,6 +815,62 @@ local function attach_history(bufnr, term_buf)
     vim.keymap.set('i', '<C-n>', in_insert(-1, '<C-n>'), {silent = true, buffer = bufnr})
     vim.keymap.set('i', '<C-x><C-p>', '<C-p>', {silent = true, buffer = bufnr})
     vim.keymap.set('i', '<C-x><C-n>', '<C-n>', {silent = true, buffer = bufnr})
+
+    -- The prompts most worth recalling, most often and recently used first,
+    -- each behind a one-key label: all of them, whatever the draft says, so
+    -- the draft never moves a prompt to another key -- filtering is what <Up>
+    -- is for. The one picked goes in at the cursor, to build on; picked with
+    -- Shift, it replaces the whole draft. The mode stays what it was, so an
+    -- Insert-mode pick goes on typing.
+    local function pick(mode)
+        local now = os.time()
+        local ranked = {}
+        for i, entry in ipairs(history[get_term_name(term_buf)] or {}) do
+            ranked[i] = { entry = entry, score = frecency(entry, now), order = i }
+        end
+        if #ranked == 0 then
+            vim.notify('foyer: no history yet', vim.log.levels.INFO)
+            return
+        end
+        -- Ties go to the later one: entries are oldest first.
+        table.sort(ranked, function(a, b)
+            if a.score ~= b.score then return a.score > b.score end
+            return a.order > b.order
+        end)
+        local items = {}
+        for i, r in ipairs(ranked) do items[i] = r.entry end
+
+        local win_id = vim.api.nvim_get_current_win()
+        local entry, replace = pick_prompt(items, win_id)
+        if not entry or not vim.api.nvim_buf_is_valid(bufnr) then return end
+        if not (vim.api.nvim_win_is_valid(win_id) and vim.api.nvim_win_get_buf(win_id) == bufnr) then
+            return
+        end
+        vim.api.nvim_set_current_win(win_id)
+        local new_lines = vim.split(entry.cmd, '\n', {plain = true})
+        if replace then
+            vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
+            vim.api.nvim_win_set_cursor(win_id, {#new_lines, #new_lines[#new_lines]})
+        else
+            -- At the cursor, as a put would: after the character under it in
+            -- Normal mode, as `p` does, before it in Insert mode, where typing
+            -- goes on after the prompt. The cursor ends up past it either way.
+            vim.api.nvim_put(new_lines, 'c', mode == 'n', true)
+        end
+    end
+
+    local key = config.history.pick_key
+    if key then
+        vim.keymap.set('n', key, function() pick('n') end, {silent = true, buffer = bufnr})
+        -- With a menu open the key is the menu's, as <C-p> and <C-n> are.
+        vim.keymap.set('i', key, function()
+            if vim.fn.pumvisible() == 1 then
+                vim.api.nvim_feedkeys(vim.keycode(key), 'n', false)
+            else
+                pick('i')
+            end
+        end, {silent = true, buffer = bufnr})
+    end
 end
 
 -- {opts.term} is the terminal the prompt is for: its history is the one
@@ -1023,26 +1317,8 @@ local function pick_terminal(root, launch_info, running)
     vim.bo[buf].modifiable = false
 
     -- Dim the editor behind the picker, so the choice is the one thing that
-    -- reads. Blending needs 'termguicolors': without it the veil would be
-    -- opaque and hide the editor outright, so it is left out instead.
-    local backdrop_buf, backdrop_win
-    if vim.o.termguicolors then
-        backdrop_buf = vim.api.nvim_create_buf(false, true)
-        backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
-            relative = 'editor',
-            row = 0,
-            col = 0,
-            width = vim.o.columns,
-            -- The command line stays clear: messages land there.
-            height = math.max(1, vim.o.lines - vim.o.cmdheight),
-            style = 'minimal',
-            focusable = false,
-            noautocmd = true,
-            zindex = 49,
-        })
-        vim.wo[backdrop_win].winhighlight = 'Normal:FoyerBackdrop'
-        vim.wo[backdrop_win].winblend = 40
-    end
+    -- reads.
+    local close_backdrop = open_backdrop()
 
     local height = math.min(#lines, vim.o.lines - 4)
     local win = vim.api.nvim_open_win(buf, false, {
@@ -1071,10 +1347,7 @@ local function pick_terminal(root, launch_info, running)
 
     vim.api.nvim_win_close(win, true)
     vim.api.nvim_buf_delete(buf, { force = true })
-    if backdrop_win then
-        vim.api.nvim_win_close(backdrop_win, true)
-        vim.api.nvim_buf_delete(backdrop_buf, { force = true })
-    end
+    close_backdrop()
     return picked or nil
 end
 

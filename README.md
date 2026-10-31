@@ -21,7 +21,8 @@ until you are done with it here.
 - **Per-terminal command history** — persisted across sessions in
   `stdpath('cache')/foyer.json`, scoped per terminal name. `<C-p>`/`<C-n>`
   walk it, and typing first filters the history by substring, with the match
-  highlighted.
+  highlighted. `<C-f>` lists your most used prompts, ranked by frequency and
+  recency.
 - **Multi-line prompts** — write a paragraph across many lines, send it as one
   payload. Made for agent CLIs, not just shell one-liners.
 - **Agent-readable context** — the file, line and selection you attached when
@@ -104,6 +105,11 @@ require('foyer').setup({
     -- `@` in a terminal's prompt lists the open files to mention. Defaults to
     -- true.
     mention = true,
+
+    -- The key in the prompt buffer, normal and insert mode, that lists your
+    -- most used prompts behind hint labels. false maps none. Defaults to
+    -- '<C-f>'.
+    history = { pick_key = '<C-f>' },
 
     -- jump(): the keys its hint labels are made of, the 'winblend' of the
     -- backdrop behind it (false for none), and what a key that is no label
@@ -378,7 +384,8 @@ Notes:
 
 ## Mappings inside the plugin's windows
 
-These are buffer-local and currently not configurable.
+These are buffer-local. Only the history picker's key is configurable, as
+`history.pick_key`.
 
 ### Command buffer
 
@@ -394,6 +401,7 @@ where `<Up>` walks the history.
 | `<C-p>` / `<Up>` | n | Previous history entry |
 | `<C-n>` / `<Down>` | n | Next history entry |
 | `<C-p>` / `<C-n>` | i | Previous / next history entry; with a menu open, move through it |
+| `<C-f>` | n, i | Label the most used prompts: a label inserts one at the cursor, Shift+label replaces the draft with it; with a menu open, the menu's. Set by `history.pick_key` |
 | `@` | i | Mention an open file, see below |
 | `<C-x><C-p>` / `<C-x><C-n>` | i | Ordinary insert-mode completion |
 | `<Esc>` | n | Close the window if the buffer is empty |
@@ -402,6 +410,19 @@ where `<Up>` walks the history.
 
 History is filtered by what you have typed: with a draft in the buffer, only the
 entries containing it are walked, and the match is highlighted.
+
+`<Up>` walks history by recency. `<C-f>` lists it by how *often* and how
+recently each prompt was sent — a prompt's uses count for half as much for
+every week since its last — so "review the staged changes" stays on top however
+many one-off prompts came after it. They pop up just below the cursor, as a
+completion menu does, or above it if there is no room below, wrapped to the
+prompt's width, up to four rows each. Each has a hint label, as in `jump()`,
+made of `jump.characters`, one prompt per character. Type a label and the
+prompt goes in at the cursor, as `p` puts it in normal mode and as typed in
+insert mode, so you can build on what you have written; type it with Shift and
+it replaces the whole draft. Either way nothing is sent until you send it. The
+list is not filtered by what you have typed, so the draft never changes which
+prompt is behind which label; to search, use `<Up>`.
 
 Once a prompt is sent, the terminal takes its window, and `<C-o>` from there
 comes back to the prompt emptied, with the selection it carried gone: a

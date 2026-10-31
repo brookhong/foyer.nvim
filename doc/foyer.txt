@@ -97,9 +97,15 @@ mention ~
     Whether `@` in a terminal's prompt lists the open files to mention, see
     |foyer-mention|. Defaults to `true`.
 
+history ~
+    `pick_key`, the key in the command buffer, Normal and Insert mode, that
+    lists the most used prompts behind hint labels, see |foyer-history|.
+    `false` maps no key. Defaults to `{ pick_key = '<C-f>' }`.
+
 jump ~
     For |foyer.jump()|: `characters`, the keys its hint labels are made of
-    (default `'asdfgqwertzxcvb'`); `backdrop`, the 'winblend' of the backdrop
+    (default `'asdfgqwertzxcvb'`), which also label the prompts
+    |foyer-history| lists; `backdrop`, the 'winblend' of the backdrop
     dimming the editor behind it, or `false` for none (default `60`); and
     `fallback`, a function for a key that is no label (default: Telescope's
     oldfiles if installed, else |vim.ui.select()| over |v:oldfiles|).
@@ -374,8 +380,8 @@ rather than assume.
 ==============================================================================
 6. MAPPINGS                                                   *foyer-mappings*
 
-All mappings below are buffer-local, created by the plugin, and currently not
-configurable.
+All mappings below are buffer-local and created by the plugin. Only the
+history picker's key is configurable, see |foyer-history|.
 
 In the command buffer ~
 
@@ -391,6 +397,10 @@ mode, where <Up> walks history.
     <C-p>             i    Previous history entry
     <C-n>             i    Next history entry
                            (with a menu open, <C-p> and <C-n> move in it)
+    <C-f>             n i  Label the most used prompts: a label inserts
+                           one at the cursor, Shift+label replaces the
+                           draft with it; with a menu open,
+                           the menu's (`history.pick_key`)
     @                 i    Mention an open file, see |foyer-mention|
     <C-x><C-p>        i    Ordinary insert-mode completion
     <C-x><C-n>        i    Ordinary insert-mode completion
@@ -406,6 +416,19 @@ away.
 History is stored per terminal name in `stdpath('cache')/foyer.json` and
 survives restarts. Typing text before walking the history filters it to
 entries containing that text, and highlights the match with |hl-FoyerMatch|.
+
+                                                               *foyer-history*
+<Up> walks history by recency. <C-f> lists it by how often and how recently
+each prompt was sent: its number of uses, halved for every week since the
+last, in a popup just below the cursor, or above it with no room below.
+Each is wrapped to the prompt's width, up to four rows, blank lines left out,
+and gets a hint label, as in |foyer.jump()|, made of `jump.characters`, one
+prompt per character. A label puts its prompt in at the cursor, after it in
+Normal mode as |p| does, at it in Insert mode as typing does, and leaves the
+cursor past it; the label with Shift replaces the whole draft with it. Nothing
+is sent until you send it. The list is not filtered by the draft, so the draft
+never changes which prompt is behind which label; to search, use <Up>. The key
+is `history.pick_key`, see |foyer-setup|.
 
                                                                *foyer-mention*
 In the prompt for one of your `commands`, `@` at the start of a word lists the

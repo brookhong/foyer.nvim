@@ -266,7 +266,11 @@ blunt tool that doesn't survive a restart.
 **With foyer.** Each terminal has its own history, saved across Neovim
 sessions. `<C-p>`/`<C-n>` walk it. Type a few words first, and only the entries
 containing them come up, with the match highlighted. Your zsh history and your
-agent history stay separate.
+agent history stay separate. And the prompts you send every day — "review the
+staged changes", "commit them" — don't sink under the one-offs: `<C-f>` lists
+history by how often and how recently you used each one, each behind a
+one-key label. Type the label to drop the prompt in at the cursor, or type it
+with Shift to make it the whole draft.
 
 ---
 
