@@ -287,6 +287,30 @@ H.test('foyer\'s own terminals are left out of the buffers; one opened by hand i
     H.ok(not listed('started-by-foyer'), 'foyer\'s is not: ' .. vim.inspect(names))
 end)
 
+H.test('a terminal of foyer\'s shown in a window has a colour of its own', function()
+    terms.lua([[
+        for _, b in ipairs(vim.api.nvim_list_bufs()) do
+            if vim.b[b].foyer_terminal then vim.cmd('vsplit | buffer ' .. b) end
+        end
+        vim.cmd('wincmd p')
+    ]])
+    terms.type('<F12>', 400)
+    -- Each name's highlight group, by the name it covers.
+    local groups = terms.lua([[
+        local ns = vim.api.nvim_get_namespaces().foyer_jump_hl
+        local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+        local out = {}
+        for _, h in ipairs(vim.api.nvim_buf_get_extmarks(0, ns, 0, -1, { details = true })) do
+            local text = lines[h[2] + 1]:sub(h[3] + 1, h[4].end_col)
+            if text:find('by%-') then out[text:match('by%-%a+')] = h[4].hl_group end
+        end
+        return out
+    ]])
+    terms.type('<Esc>')
+    H.eq('FoyerJumpTerminal', groups['by-foyer'], 'foyer\'s, among the tabs: ' .. vim.inspect(groups))
+    H.eq('FoyerJumpName', groups['by-hand'], 'one opened by hand, among the buffers: ' .. vim.inspect(groups))
+end)
+
 terms.stop()
 
 -- One file, hidden, and the picker opened from a terminal of foyer's: the file

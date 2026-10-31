@@ -459,6 +459,7 @@ rather than links so they stay distinct in any colorscheme:
 | `FoyerJumpName` | `#6699cc` bold | `#005f87` bold | buffer, window and file names |
 | `FoyerJumpCurrent` | `#99c794` bold | `#008700` bold | the current buffer or window |
 | `FoyerJumpNoName` | `#f99157` italic | `#af5f00` italic | buffers without a file name |
+| `FoyerJumpTerminal` | `#c594c5` bold | `#875faf` bold | terminals foyer started |
 | `FoyerJumpLabel` | `#1b2b34` on `#fac863` bold | `#ffffff` on `#d75f00` bold | hint labels |
 | `FoyerJumpLabelTyped` | `#1b2b34` on `#65737e` | `#ffffff` on `#8a8a8a` | the part of a label already typed |
 | `FoyerJumpBackdrop` | bg `#000000` | bg `#000000` | dims the editor behind it (see `jump.backdrop`) |

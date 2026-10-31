@@ -473,6 +473,7 @@ colorscheme change clears them.
     FoyerJumpName           buffer, window and file names
     FoyerJumpCurrent        the current buffer or window
     FoyerJumpNoName         buffers without a file name
+    FoyerJumpTerminal       terminals foyer started
     FoyerJumpLabel          hint labels
     FoyerJumpLabelTyped     the part of a hint label already typed
     FoyerJumpBackdrop       dims the editor behind it, see `jump.backdrop`

@@ -32,6 +32,7 @@ local HL = {
     name = "FoyerJumpName",       -- entry names
     current = "FoyerJumpCurrent", -- the current buffer/window
     noname = "FoyerJumpNoName",   -- buffers without a file name
+    terminal = "FoyerJumpTerminal", -- terminals foyer started
     label = "FoyerJumpLabel",     -- hint labels
     typed = "FoyerJumpLabelTyped", -- the part of a hint label already typed
     backdrop = "FoyerJumpBackdrop", -- dims the editor behind the picker
@@ -46,6 +47,7 @@ local HL_DEFAULTS = {
         [HL.name]    = { fg = "#6699cc", ctermfg = 68, bold = true },
         [HL.current] = { fg = "#99c794", ctermfg = 114, bold = true },
         [HL.noname]  = { fg = "#f99157", ctermfg = 209, italic = true },
+        [HL.terminal] = { fg = "#c594c5", ctermfg = 176, bold = true },
         [HL.label]   = { fg = "#1b2b34", bg = "#fac863", ctermfg = 235, ctermbg = 221, bold = true },
         [HL.typed]   = { fg = "#1b2b34", bg = "#65737e", ctermfg = 235, ctermbg = 243 },
         [HL.backdrop] = { bg = "#000000", ctermbg = 16 },
@@ -55,6 +57,7 @@ local HL_DEFAULTS = {
         [HL.name]    = { fg = "#005f87", ctermfg = 24, bold = true },
         [HL.current] = { fg = "#008700", ctermfg = 28, bold = true },
         [HL.noname]  = { fg = "#af5f00", ctermfg = 130, italic = true },
+        [HL.terminal] = { fg = "#875faf", ctermfg = 97, bold = true },
         [HL.label]   = { fg = "#ffffff", bg = "#d75f00", ctermfg = 231, ctermbg = 166, bold = true },
         [HL.typed]   = { fg = "#ffffff", bg = "#8a8a8a", ctermfg = 231, ctermbg = 245 },
         [HL.backdrop] = { bg = "#000000", ctermbg = 16 },
@@ -106,9 +109,14 @@ api.nvim_create_autocmd("ColorScheme", {
     callback = setupHighlights,
 })
 
--- Highlight group for an entry's name.
-local function nameHl(current, noname)
-    return noname and HL.noname or (current and HL.current or HL.name)
+-- Highlight group for the name of {bufnr}'s entry: where we are first, then
+-- a terminal of foyer's -- an agent's, most likely, set apart from the files
+-- around it -- then a buffer with no name.
+local function nameHl(current, bufnr)
+    if current then return HL.current end
+    if vim.b[bufnr].foyer_terminal then return HL.terminal end
+    if api.nvim_buf_get_name(bufnr) == "" then return HL.noname end
+    return HL.name
 end
 
 -- {cap}, when given, is the most display cells a name may take: longer ones
@@ -189,7 +197,7 @@ local buildMarks = function(bnr, ns_id, data, positions)
     return marks
 end
 
--- Pack `entries` ({ name, current, noname }) into lines no wider than max_width,
+-- Pack `entries` ({ name, current, bufnr }) into lines no wider than max_width,
 -- using at most max_height lines. Returns the lines (with a leading title slot
 -- and a trailing blank line), how many entries fit (entries beyond that get no
 -- mark), and per line, in 0-based byte columns of lines[lnum]:
@@ -215,7 +223,7 @@ local function packEntries(entries, max_width, max_height)
         end
         local s = #files + #prefix
         lineSlots[#lineSlots + 1] = #files + 1
-        lineHls[#lineHls + 1] = { s, s + #e.name, nameHl(e.current, e.noname) }
+        lineHls[#lineHls + 1] = { s, s + #e.name, e.bufnr and nameHl(e.current, e.bufnr) or HL.name }
         files = files..entry
         count = count + 1
     end
@@ -260,7 +268,7 @@ local buildLinesForBuffers = function(max_width, max_height, exclude, names)
     local bnr = vim.fn.bufnr('%')
     local entries = {}
     for _, buf in ipairs(bufs) do
-        entries[#entries + 1] = { name = names[buf.bufnr], current = buf.bufnr == bnr, noname = buf.name == "" }
+        entries[#entries + 1] = { name = names[buf.bufnr], current = buf.bufnr == bnr, bufnr = buf.bufnr }
     end
     local lines, count, hls, slots = packEntries(entries, max_width, max_height)
     local bufNrs = {}
@@ -485,7 +493,7 @@ local function layoutBlock(node, nr, cur_win, names, cap)
         local prefix = current and " " or ENTRY_PREFIX
         -- trailing space, like packEntries, so names don't touch the column line
         local text = prefix..name.." "
-        local hls = {{ #prefix, #prefix + #name, nameHl(current, api.nvim_buf_get_name(bufnr) == "") }}
+        local hls = {{ #prefix, #prefix + #name, nameHl(current, bufnr) }}
         local slots = current and {} or { 1 }
         return {
             lines = {{ text = text, wins = current and {} or { win }, hls = hls, slots = slots }},
