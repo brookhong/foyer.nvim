@@ -291,7 +291,10 @@ jump()
     is laid out with its windows placed as on screen, then the listed buffers
     no window shows, by when they were last used, then recent files, each
     name just long enough to tell it from the others. Type a label to go
-    there, with Shift to open it in a new tab. <BS> starts the label again,
+    there: to a window, or to a buffer or file opened in this one. With Shift
+    a label does the other thing: a window's buffer comes into this window,
+    and a buffer or file opens in a new tab. An empty window a buffer is
+    brought into leaves no `[No Name]` behind. <BS> starts the label again,
     <Esc> cancels, any other key hands over to `jump.fallback`, see
     |foyer-setup|. A window squeezed flat by a full-screen neighbour is left
     out, as |foyer.tab_switch()| does; what it shows is still listed among the

@@ -294,8 +294,9 @@ while it works? `<C-o>` takes you to the prompt.
 - **`tab_switch()`** moves to the next window worth looking at, skipping the
   slivers a full-screen window leaves behind.
 - **`jump()`** labels every tab, window, buffer and recent file, laid out as
-  they sit on screen; type a label to go there, with Shift for a new tab. Names
-  are just long enough to tell apart, and squeezed windows are left out.
+  they sit on screen; type a label to go there. With Shift, a window's buffer
+  comes to you instead, and a buffer or file opens in a new tab. Names are
+  just long enough to tell apart, and squeezed windows are left out.
 
 <img width="1227" height="707" alt="foyer.jump() laying out tabs, buffers and recent files, each with a label" src="https://github.com/user-attachments/assets/d53489db-25a1-46cf-ad8a-81e07cffeedf" />
 

@@ -309,15 +309,18 @@ A picker for getting anywhere in two keystrokes, after the
 of Surfingkeys. It lays out every tab page with its windows placed as they are
 on screen, then the listed buffers not shown in any window, by when you last
 used them, then recently opened files, each name just long enough to tell it
-from the others. Each one has a hint label over it: type it to go there, with
-Shift to open it in a new tab. `<BS>` starts the label again, `<Esc>` cancels,
-and any other key hands over to `jump.fallback`, for an old file the picker had
-no room for. A window squeezed flat by a full-screen neighbour is left out,
-like `tab_switch()` does; what it shows is still listed among the buffers.
-The terminals foyer started are not: `terminal_command()` reaches this
-project's and the global ones, in a window with the prompt a `<C-o>` away, and
-another project's is reached from that project. One shown in a window is still
-among the tabs, and a terminal you opened yourself is listed as any buffer.
+from the others. Each one has a hint label over it: type it to go there — to a
+window, or to a buffer or file opened in this one. With Shift a label does the
+other thing: a window's buffer comes into this window, and a buffer or file
+opens in a new tab. An empty window a buffer is brought into leaves no
+`[No Name]` behind. `<BS>` starts the label again, `<Esc>` cancels, and any
+other key hands over to `jump.fallback`, for an old file the picker had no room
+for. A window squeezed flat by a full-screen neighbour is left out, like
+`tab_switch()` does; what it shows is still listed among the buffers. The
+terminals foyer started are not: `terminal_command()` reaches this project's and
+the global ones, in a window with the prompt a `<C-o>` away, and another
+project's is reached from that project. One shown in a window is still among
+the tabs, and a terminal you opened yourself is listed as any buffer.
 
 It opens in a bordered window titled *Jump / Foyer*, with the keys along its
 bottom edge, and fits it whatever it holds. Tabs too many to sit side by side

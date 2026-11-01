@@ -229,7 +229,7 @@ vim.api.nvim_create_autocmd('TermOpen', {
 - **`x`**：终端窗口在全屏和原尺寸之间切换。
 - **`tab_switch()`**：跳到下一个值得看的窗口，自动跳过被全屏窗口挤成一条缝的那些。
 - **`jump()`**：所有标签页、窗口、缓冲区和最近的文件按屏幕上的位置排开，各带一个标签，输入标签就过去，
-  按住 Shift 则在新标签页打开。名字只取刚好能区分的长度，被挤扁的窗口不列出。
+  按住 Shift 则反过来：窗口里的缓冲区搬到当前窗口，缓冲区或文件在新标签页打开。名字只取刚好能区分的长度，被挤扁的窗口不列出。
 
 <img width="1227" height="707" alt="foyer.jump() 把标签页、缓冲区和最近的文件排开，每项带一个标签" src="https://github.com/user-attachments/assets/d53489db-25a1-46cf-ad8a-81e07cffeedf" />
 

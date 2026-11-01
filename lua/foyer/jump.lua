@@ -16,7 +16,7 @@ local COL_SEP = "│"
 -- The picker's frame: its title, and the reminder of the keys along its
 -- bottom edge.
 local TITLE = " Jump / Foyer "
-local FOOTER = " Type hint labels to pick, <Esc> to cancel "
+local FOOTER = " label: go · Shift: here / new tab · <Esc> "
 
 -- Display cells of {s}. The box-drawing characters the picker is drawn with
 -- are ambiguous-width, two cells with 'ambiwidth' double, so nothing is laid
@@ -657,6 +657,20 @@ local function fallback()
     end)
 end
 
+-- Show {buf} in the current window. What it showed, if that was an empty
+-- buffer -- no name, no 'buftype', no changes, as :tabnew and :vnew leave --
+-- is wiped unless another window shows it: it would only be left listed, an
+-- "[empty]" among the buffers.
+local function loadHere(buf)
+    local before = api.nvim_get_current_buf()
+    if buf == before then return end
+    api.nvim_set_current_buf(buf)
+    if api.nvim_buf_get_name(before) == "" and vim.bo[before].buftype == ""
+        and not vim.bo[before].modified and #vim.fn.win_findbuf(before) == 0 then
+        pcall(api.nvim_buf_delete, before, {})
+    end
+end
+
 local function findBufByName(path)
     for _, buf in ipairs(api.nvim_list_bufs()) do
         local name = api.nvim_buf_get_name(buf)
@@ -847,7 +861,7 @@ function M.open()
     local bnr = vim.fn.bufnr('%')
     local pick = ""
     local ch = ""
-    local newTab = false
+    local shifted = false
     local matches = buildMarks(bnr, buf_picker_ns, data, positions)
     repeat
         local ok, ret = pcall(readKey)
@@ -859,15 +873,16 @@ function M.open()
         end
         if ch == BS then
             pick = ""
-            newTab = false
+            shifted = false
             matches = buildMarks(bnr, buf_picker_ns, data, positions)
         elseif ch == ESC then
             break
         else
-            -- Shift + mark: open the picked one in a new tab
+            -- Shift + label: the other thing than the label alone does, see
+            -- the end of M.open()
             local lower = ch:lower()
             if lower ~= ch and not config.jump.characters:find(ch, 1, true) then
-                newTab = true
+                shifted = true
                 ch = lower
             end
             pick = pick .. ch
@@ -907,29 +922,30 @@ function M.open()
         vim.api.nvim_set_current_win(original_win_id)
     end
     -- <Esc> leaves wherever we are, however many labels were still left.
+    -- A label alone goes where the entry is: to a window, or loads a buffer or
+    -- old file into this one, which shows none of them. Shift does the other
+    -- thing: brings a window's buffer here, or opens a buffer or old file in a
+    -- new tab.
     if ch ~= ESC and #matches == 1 then
         local data = matches[1].data
-        if newTab then
-            local buf = data
-            if type(data) == "table" then
-                buf = api.nvim_win_is_valid(data.win) and api.nvim_win_get_buf(data.win) or nil
-            elseif type(data) == "string" then
-                buf = findBufByName(data)
-            end
-            if buf then
-                vim.cmd(string.format("tab sbuffer %d", buf))
-            elseif type(data) == "string" then
-                vim.cmd("tabedit " .. vim.fn.fnameescape(data))
-            end
-            return
-        end
         if type(data) == "table" and data.win then
-            if api.nvim_win_is_valid(data.win) then
+            if not api.nvim_win_is_valid(data.win) then return end
+            if shifted then
+                loadHere(api.nvim_win_get_buf(data.win))
+            else
                 api.nvim_set_current_win(data.win)
             end
             return
         end
         local target = type(data) == "number" and data or findBufByName(data)
+        if shifted then
+            if target then
+                vim.cmd(string.format("tab sbuffer %d", target))
+            else
+                vim.cmd("tabedit " .. vim.fn.fnameescape(data))
+            end
+            return
+        end
         if not (target and focusWindowWithBuf(target)) then
             if type(data) == "number" then
                 vim.cmd(string.format("b %d", data))
