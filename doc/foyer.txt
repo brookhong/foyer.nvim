@@ -111,35 +111,6 @@ jump ~
     `fallback`, a function for a key that is no label (default: Telescope's
     oldfiles if installed, else |vim.ui.select()| over |v:oldfiles|).
 
-                                                           *foyer.send_prefix*
-send_prefix ~
-    Keys that clear the receiver's input line and its screen, keyed by the
-    program receiving them. Before the text, foyer clears whatever the
-    receiver has on its input line, and clears the screen with it: CTRL-U then
-    CTRL-L, or `{ ESC, '' }` for cmd.exe. Those are a shell's bindings, and a
-    program with a UI of its own is free to bind them to anything -- `pi`
-    erases the line on CTRL-U as a shell does, but opens its model picker on
-    CTRL-L, which then swallows the prompt arriving behind it. So name the
-    keys the program does understand, and `''` for the rest: >lua
-        send_prefix = {
-            -- { clear input, clear screen }
-            pi = { vim.keycode('<C-u>'), '' },
-            claude = { '', '' },
-        }
-<
-    A send is prefixed with both, the input key first. The input key alone is
-    also what |foyer.edit_input()| sends to find the command line, so a
-    program given `''` there leaves it nothing to read -- reading back a
-    prompt is a shell feature either way.
-
-    The key names the program, not the `commands` key that selected it: one
-    such key stands for whatever a project wants behind it, so `a` is free to
-    be a different agent in every repo. The whole command line as spawned, the
-    program alone and its basename are all tried, so `pi --yolo`,
-    `/opt/pi/bin/pi` and `pi` are all usable keys -- the basename covers every
-    path and argument spelling at once. A program with no key of its own keeps
-    the defaults.
-
 Example: >lua
     require('foyer').setup({
         commands = {
@@ -264,12 +235,6 @@ send_terminal_command({term_key}, {opts})
     command buffer opens. With `opts.auto_start` the terminal is created if it
     is missing.
 
-                                                          *foyer.edit_input()*
-edit_input()
-    Lift the terminal's current, half-typed command line into a floating
-    buffer and write the edited result back to the prompt. Must be called from
-    a terminal buffer, in Normal mode.
-
                                                       *foyer.edit_selection()*
 edit_selection()
     Open the current visual selection in a floating buffer and replace the
@@ -285,9 +250,10 @@ toggle_full_size()
     back restores every split in the tab page to the size it had; floats,
     which take no room from anyone, are left as they are. If splits have come
     or gone since, that no longer fits them, and only the window's own width
-    and height go back, each only where a neighbour is left to take it from. The size is remembered per window.
-    Full screen is a request, not a promise: a neighbouring split keeps its
-    minimum size, so a split may stop a few columns or lines short.
+    and height go back, each only where a neighbour is left to take it from.
+    The size is remembered per window. Full screen is a request, not a
+    promise: a neighbouring split keeps its minimum size, so a split may stop
+    a few columns or lines short.
 
     No key is mapped to it: map one of your own, for every window, foyer's
     prompts and terminals among them: >lua
@@ -365,10 +331,10 @@ history picker's key is configurable, see |foyer-history|.
 
 In the command buffer ~
 
-A buffer with something to say already -- a lifted command line, a seeded
-`command`, a prompt that is going to carry a `selection` -- starts in Insert
-mode at the end of its text. One opened with nothing to say starts in Normal
-mode, where <Up> walks history.
+A buffer with something to say already -- a seeded `command`, a prompt that
+is going to carry a `selection` -- starts in Insert mode at the end of its
+text. One opened with nothing to say starts in Normal mode, where <Up> walks
+history.
 
     <CR>              n    Send the buffer to the terminal
     <C-s>             i    Send the buffer to the terminal
@@ -430,16 +396,14 @@ down is found as you type. While it is open:
     <Esc>      Leave the `@` as typed.
 
 An `@` inside a word (`user@host`) is just an `@`, and so is one with no open
-file to offer. The prompt of |foyer.edit_input()| has no mentions. A recent
-file is read only when it comes into the menu, without its autocommands -- no
-filetype plugin or language server starts for it -- and let go again when the
-menu closes. A block put in with <C-l> is left out of history, which keeps the
-words around it.
+file to offer. A recent file is read only when it comes into the menu,
+without its autocommands -- no filetype plugin or language server starts for
+it -- and let go again when the menu closes. A block put in with <C-l> is left
+out of history, which keeps the words around it.
 
 |foyer.edit_selection()|'s window is text you are editing rather than a
 prompt: it keeps <CR>, <C-s>, <Esc> and <C-c>, has no history, and always
-starts in Normal mode. With no terminal behind it, <C-o> there does nothing,
-as it does in |foyer.edit_input()|'s.
+starts in Normal mode. With no terminal behind it, <C-o> there does nothing.
 
 In the terminal buffer ~
 
@@ -447,9 +411,7 @@ The <C-x> mappings and the yank fix are on every terminal this plugin opens;
 the rest are attached when a terminal is shown in one of this plugin's own
 windows, which `switch` does not do -- it hands the terminal your window.
 
-    [p                n    Jump to the previous shell prompt
-    ]p                n    Jump to the next shell prompt
-    <C-r>             n    cd to the project root, re-learn the prompt
+    <C-r>             n    cd to the project root
     <C-o>             n    Back to the prompt the terminal was shown for
                            in this window; in one of yours, Vim's |CTRL-O|
     <CR>, <C-c>, <Esc> n   Close the terminal window
@@ -522,10 +484,6 @@ colorscheme change clears them.
 - |foyer.edit_selection()| goes through register a: the selection is yanked
   into it on the way in, and the edited text on the way back out. <C-x>i in a
   terminal pastes register a, whatever put it there.
-- Reading the command line works by sending the erase sequence (CTRL-U, or ESC
-  for cmd.exe, or whatever |foyer.send_prefix| names) and observing where the
-  cursor lands, with short timers to let the shell respond. This is heuristic:
-  an unusual prompt or a very slow shell can confuse it.
 - Timings, mappings, and the register are hardcoded.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

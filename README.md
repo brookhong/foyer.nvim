@@ -12,8 +12,6 @@ until you are done with it here.
 
 ## Features
 
-- **Edit the current command line** — `edit_input()` lifts whatever you have
-  half-typed at the prompt into a floating buffer, then writes it back.
 - **Project-scoped named terminals** — one keypress picks a terminal by its
   first character (`z` → zsh, `g` → gdb, `a` → your coding agent). Terminals are
   keyed by project root, spawned on demand, and reused; a `scope = 'global'`
@@ -29,8 +27,6 @@ until you are done with it here.
   with the prompt, labelled with its file and lines; type `@` to mention an open
   file at a line, the one you came from first. All of it is in the text the
   agent reads, so any agent understands it with no setup.
-- **Prompt navigation** — `[p` / `]p` jump between shell prompts in the terminal
-  scrollback.
 - **Editable visual selection** — `edit_selection()` opens any visual selection
   in a floating scratch buffer and writes the result back over the selection.
 - **Jump anywhere** — `jump()` labels every tab, window, buffer and recent file;
@@ -117,45 +113,8 @@ require('foyer').setup({
     -- backdrop behind it (false for none), and what a key that is no label
     -- opens -- by default Telescope's oldfiles if installed, else vim.ui.select.
     jump = { characters = 'asdfgqwertzxcvb', backdrop = 60, fallback = nil },
-
-    -- Keys that clear the receiver's input line and its screen, keyed by the
-    -- program receiving them. Defaults to { Ctrl-U, Ctrl-L }. A program that
-    -- binds either key to something of its own needs its own -- see below.
-    send_prefix = {
-        pi = { vim.keycode('<C-u>'), '' },
-    },
 })
 ```
-
-### `send_prefix`
-
-Before the text, foyer clears whatever the receiver already has on its input
-line, and clears the screen with it: `Ctrl-U` then `Ctrl-L`, or `{ ESC, '' }`
-for `cmd.exe`. Those are a shell's bindings, and a program with its own UI is
-free to bind them to anything — `pi` erases the line on `Ctrl-U` as a shell
-does, but opens its model picker on `Ctrl-L`, which then swallows the prompt
-arriving behind it. So name the keys the program does understand, and `''` for
-the rest:
-
-```lua
-send_prefix = {
-    -- { clear input, clear screen }
-    pi = { vim.keycode('<C-u>'), '' },
-    claude = { '', '' },
-}
-```
-
-A send is prefixed with both, the input key first. The input key alone is also
-what `edit_input()` sends to find the command line, so a program given `''`
-there leaves it nothing to read — reading back a prompt is a shell feature
-either way.
-
-The key names the **program**, not the `commands` key that selected it: one
-such key stands for whatever a project wants behind it, so `a` is free to be a
-different agent in every repo. The whole command line as spawned, the program
-alone and its basename are all tried, so `pi --yolo`, `/opt/pi/bin/pi` and `pi`
-are all usable keys — the basename covers every path and argument spelling at
-once. A program with no key of its own keeps the defaults.
 
 ### `launch_info`
 
@@ -199,16 +158,6 @@ vim.keymap.set({ 'n', 'v' }, '<leader>a', function()
     foyer.terminal_command({ win_type = 'sidebar' })
 end, { desc = 'Send command to a picked terminal' })
 
--- Edit the half-typed command line of the terminal you are in.
-vim.api.nvim_create_autocmd('TermOpen', {
-    pattern = '*',
-    callback = function(ev)
-        vim.api.nvim_buf_set_keymap(ev.buf, 't', '<C-x>e',
-            '<C-\\><C-n>:lua require("foyer").edit_input()<CR>',
-            { noremap = true, silent = true, desc = 'Edit terminal command line' })
-    end,
-})
-
 -- Edit the current visual selection in a floating buffer.
 vim.keymap.set('v', 'E', function()
     foyer.edit_selection()
@@ -226,7 +175,6 @@ vim.keymap.set('n', '<leader>z', foyer.toggle_full_size, { desc = 'Toggle full-s
 | `setup(opts)` | Merge `opts` into the configuration. |
 | `terminal_command(opts)` | Pick a terminal by its `commands` key, spawn it if needed, then open a command buffer for it. A popup lists the keys if none is typed within `picker_delay`; `<Esc>` cancels. |
 | `send_terminal_command(term_key, opts)` | Drive a specific terminal directly. `opts.command` sends non-interactively; omit it to open the command buffer. `opts.auto_start = true` spawns the terminal if it is missing. |
-| `edit_input()` | Lift the terminal's current command line into a floating buffer. Must be called from a terminal buffer. |
 | `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |
 | `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float; width and height for a split, beside its neighbours, above or below them, or both. Putting it back restores every split in the tab as it was, and leaves floats alone. A neighbouring split keeps its minimum size, so a split may stop a few columns or lines short. |
 | `jump()` | Jump to any tab, window, buffer or recent file by typing the hint label drawn over it; see below. |
@@ -354,10 +302,10 @@ These are buffer-local. Only the history picker's key is configurable, as
 
 ### Command buffer
 
-A buffer with something to say already — a lifted command line, a seeded
-`command`, a prompt that is going to carry a `selection` — starts in insert mode
-at the end of its text. One opened with nothing to say starts in normal mode,
-where `<Up>` walks the history.
+A buffer with something to say already — a seeded `command`, a prompt that is
+going to carry a `selection` — starts in insert mode at the end of its text. One
+opened with nothing to say starts in normal mode, where `<Up>` walks the
+history.
 
 | Key | Mode | Action |
 | --- | --- | --- |
@@ -413,16 +361,14 @@ found as you type. While it is open:
 | `<Esc>` | Nothing: the `@` stays as typed |
 
 An `@` inside a word (`user@host`) is just an `@`, and so is one with no open
-file to offer. The prompt for `edit_input()` has no mentions: it is a shell's
-command line. A recent file is read only when it comes into the menu, without
+file to offer. A recent file is read only when it comes into the menu, without
 its autocommands — no filetype plugin or language server starts for it — and
 let go again when the menu closes. A block put in with `<C-l>` is left out of
 history, which keeps the words around it.
 
 `edit_selection()`'s window is text you are editing rather than a prompt: it
 keeps `<CR>`, `<C-s>`, `<Esc>` and `<C-c>`, has no history, and always starts
-in normal mode. With no terminal behind it, `<C-o>` there does nothing, as it
-does in `edit_input()`'s.
+in normal mode. With no terminal behind it, `<C-o>` there does nothing.
 
 ### Terminal buffer
 
@@ -433,8 +379,7 @@ has only those three.
 
 | Key | Mode | Action |
 | --- | --- | --- |
-| `[p` / `]p` | n | Jump to the previous / next shell prompt |
-| `<C-r>` | n | `cd` the terminal to the project root and re-learn the prompt |
+| `<C-r>` | n | `cd` the terminal to the project root |
 | `<C-o>` | n | Back to the prompt the terminal was shown for in this window; in a window of your own, Vim's jump back |
 | `<CR>` / `<C-c>` / `<Esc>` | n | Close the terminal window |
 | `<C-x>i` | t | Paste register `a` at the prompt |
@@ -501,11 +446,6 @@ autocmd or after `:colorscheme`.
 - `edit_selection()` goes through register `a`: the selection is yanked into it
   on the way in, and the edited text on the way back out. `<C-x>i` in a terminal
   pastes register `a`, whatever put it there.
-- The plugin reads the command line by sending the erase sequence (`Ctrl-U`, or
-  `ESC` for `cmd.exe`, or whatever `send_prefix` names) and watching where the
-  cursor lands, with short timers to let the shell respond. This is inherently
-  heuristic: a shell with an unusual prompt or a very slow response can confuse
-  it.
 - Timings, keymaps, and the register are hardcoded.
 
 ## License

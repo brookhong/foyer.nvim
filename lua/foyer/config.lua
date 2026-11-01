@@ -3,7 +3,7 @@
 local M = {}
 
 local config = {
-    commands = {}, root_markers = nil, bracketed_paste = true, send_prefix = {},
+    commands = {}, root_markers = nil, bracketed_paste = true,
     picker_delay = 500, selection_max_lines = 40, mention = true,
     -- foyer.jump(): the keys its hint labels are made of, the 'winblend' of
     -- the backdrop dimming the editor behind it (false: none), and what a key

@@ -25,12 +25,12 @@ H.test('the prompt opens in a float, titled with the terminal', function()
     H.ok(s.title:find('sh · foyer.nvim', 1, true), 'title: ' .. s.title)
 end)
 
-H.test('a sent line reaches the terminal after the clear keys', function()
+H.test('a sent line reaches the terminal as it is, with Enter', function()
     H.reset(file)
     prompt()
     H.send('echo hello')
-    H.eq('\21\12', H.sent()[1], 'clear keys first')
-    H.eq('echo hello\r', H.last_text(), 'then the line')
+    -- The first send to a terminal holds its Enter until the text has shown.
+    H.eq('echo hello\r', table.concat(H.sent()), 'the line and Enter, nothing before it')
     H.ok(H.state().terminal, 'the window now shows the terminal')
 end)
 

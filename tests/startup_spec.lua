@@ -67,7 +67,7 @@ end
 
 H.test('auto_start with a command waits for the agent, then sends it', function()
     foyer.send_terminal_command('a', { auto_start = true, command = 'from auto_start' })
-    H.eq({ 'ready', "got b'\\x15\\x0cfrom auto_start\\r'" }, wait_for('a', "got b'\\x15\\x0cfrom auto_start\\r'"), 'agent log')
+    H.eq({ 'ready', "got b'from auto_start\\r'" }, wait_for('a', "got b'from auto_start\\r'"), 'agent log')
     H.ok(vim.tbl_contains(notes, 'foyer.nvim: waiting for python3 to start'), 'said it was waiting: ' .. vim.inspect(notes))
 end)
 
@@ -77,15 +77,15 @@ H.test('a prompt sent on first use, before the agent is up, still arrives', func
     H.ok(H.state().prompt, 'the prompt opens at once')
     H.send('from the prompt', true)
     H.ok(not vim.tbl_contains(received('b'), 'ready'), 'sent while the agent was still starting')
-    local got = wait_for('b', "got b'\\x15\\x0cfrom the prompt\\r'")
+    local got = wait_for('b', "got b'from the prompt\\r'")
     H.eq('ready', got[1], 'the agent came up first')
-    H.eq("got b'\\x15\\x0cfrom the prompt\\r'", got[2], 'then the prompt arrived')
+    H.eq("got b'from the prompt\\r'", got[2], 'then the prompt arrived')
 end)
 
 H.test('once the agent is up, a send goes straight to it', function()
     notes = {}
     foyer.send_terminal_command('a', { command = 'already up' })
-    H.ok(vim.tbl_contains(wait_for('a', "got b'\\x15\\x0calready up\\r'"), "got b'\\x15\\x0calready up\\r'"), 'received')
+    H.ok(vim.tbl_contains(wait_for('a', "got b'already up\\r'"), "got b'already up\\r'"), 'received')
     H.eq({}, notes, 'no waiting')
 end)
 

@@ -415,9 +415,6 @@ local unconfirmed = {}
 -- How long a typed prompt may take to show on the terminal's screen.
 local ECHO_MS = 2000
 
--- Declared here, defined further down with the other send_prefix lookups.
-local get_osc_commands
-
 local function term_label(buf)
     local cmdline = vim.api.nvim_buf_get_name(buf):match('//%d+:(.*)$')
     return cmdline and vim.fs.basename(cmdline:match('^%S+')) or 'the terminal'
@@ -428,8 +425,9 @@ local function screen(buf)
 end
 
 -- Call {fn} once {buf}'s screen has stopped changing for a moment, or after
--- {max_ms} regardless: what the keys sent before it do to the screen -- a
--- clear, a redraw -- is over by then, and not taken for what the next keys do.
+-- {max_ms} regardless: whatever the program is still drawing -- its first
+-- screen, a redraw -- is over by then, and not taken for what the next keys
+-- do.
 local function when_quiet(buf, max_ms, fn)
     local since, last, still = vim.uv.now(), screen(buf), vim.uv.now()
     local function check()
@@ -451,9 +449,8 @@ end
 -- paste, while a question ignores it. Not shown, nothing more is sent: the
 -- question is the user's to answer. {done} is called with 'sent', 'unseen',
 -- or 'closed' for a terminal gone meanwhile.
-local function deliver_confirmed(term_bufnr, cmd, prefix, suffix, done)
+local function deliver_confirmed(term_bufnr, cmd, suffix, done)
     local job = vim.b[term_bufnr].terminal_job_id
-    vim.fn.chansend(job, prefix)
     when_quiet(term_bufnr, 1000, function()
         local before = screen(term_bufnr)
         vim.fn.chansend(job, as_paste(cmd))
@@ -480,7 +477,7 @@ local function deliver(term_bufnr, send, done)
         -- Out of Terminal mode meanwhile: a key of the user's reaching the
         -- terminal -- an arrow moving through a question -- would change the
         -- screen, and be taken for the text arriving.
-        return deliver_confirmed(term_bufnr, send.cmd, send.prefix, send.suffix, done)
+        return deliver_confirmed(term_bufnr, send.cmd, send.suffix, done)
     end
     local shown = vim.api.nvim_get_current_buf() == term_bufnr
     -- Terminal mode follows the output, so what the send brings back is in
@@ -488,7 +485,6 @@ local function deliver(term_bufnr, send, done)
     -- have taken them somewhere else by now.
     if shown then vim.cmd('startinsert') end
     vim.defer_fn(function()
-        vim.fn.chansend(job, send.prefix)
         vim.fn.chansend(job, as_paste(send.cmd) .. send.suffix)
         if send.stopinsert and vim.api.nvim_get_current_buf() == term_bufnr then
             vim.cmd('stopinsert')
@@ -541,11 +537,11 @@ local function run_queue(term_bufnr)
     next_send()
 end
 
--- Send {cmd} to {term_bufnr}, after {prefix} and with {suffix} -- the Enter,
--- if any -- once the terminal has started, and in order with any other send
--- still waiting for it.
-local function send_command(term_bufnr, cmd, prefix, suffix, stopinsert)
-    local send = { cmd = cmd, prefix = prefix, suffix = suffix, stopinsert = stopinsert }
+-- Send {cmd} to {term_bufnr} as it is, with {suffix} -- the Enter, if any --
+-- once the terminal has started, and in order with any other send still
+-- waiting for it.
+local function send_command(term_bufnr, cmd, suffix, stopinsert)
+    local send = { cmd = cmd, suffix = suffix, stopinsert = stopinsert }
     if pending[term_bufnr] then
         table.insert(pending[term_bufnr], send)
         return
@@ -553,51 +549,6 @@ local function send_command(term_bufnr, cmd, prefix, suffix, stopinsert)
     pending[term_bufnr] = { send }
     run_queue(term_bufnr)
 end
-
--- The command line a terminal was spawned with, which its buffer name records
--- as `term://<cwd>//<pid>:<command>`.
-local function term_command(term_bufnr)
-    return vim.api.nvim_buf_get_name(term_bufnr):match('^term://.-//%d+:(.*)$')
-end
-
--- The keys a terminal is driven with, `{ clear_input, clear_screen }`: Ctrl-U
--- erases the input line, Ctrl-L wipes the screen. cmd.exe erases with ESC and
--- has nothing for the screen.
-local function default_prefix(term_bufnr)
-    if jit.os == "Windows" and vim.api.nvim_buf_get_name(term_bufnr):match("cmd") then
-        return { "\x1b", "" }
-    end
-    return { "\x15", "\x0c" }
-end
-
--- The pair the user named for this program, if any.
---
--- Keyed by the program, not by the `commands` key that selected it: one key
--- stands for whatever that project wants behind it, so `a` is one agent here
--- and another there. The whole command line, the program alone and its
--- basename are all tried, so a program can be named however you think of it.
-local function configured_prefix(term_bufnr)
-    local cmd = term_command(term_bufnr)
-    if not cmd then return nil end
-    local program = cmd:match('^%S+')
-    return config.send_prefix[cmd]
-        or program and (config.send_prefix[program]
-            or config.send_prefix[program:match('[^/\\]+$')])
-end
-
--- [1] clears the input line, which is also how the command line is read back;
--- [2] clears the screen as well, which is what a send is prefixed with. Both
--- are a shell's bindings, and a program with a UI of its own is free to bind
--- them to anything -- an agent that opens a menu on Ctrl-L swallows the prompt
--- arriving behind it, while erasing the line on Ctrl-U as any shell does -- so
--- a program may name the keys it understands, and `''` the ones it does not.
-get_osc_commands = function(term_bufnr)
-    local prefix = configured_prefix(term_bufnr) or default_prefix(term_bufnr)
-    local clear_input = prefix[1] or ''
-    return { clear_input, clear_input .. (prefix[2] or '') }
-end
-
-local prompts = {}
 
 local term_keymaps_group = vim.api.nvim_create_augroup('foyer_keymaps', { clear = false })
 local term_setup_done = {}
@@ -619,7 +570,6 @@ local function setup_terminal_keymaps(buf)
             starting[buf] = nil
             pending[buf] = nil
             unconfirmed[buf] = nil
-            prompts[buf] = nil
         end,
     })
 
@@ -708,37 +658,12 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
         end
     end, {silent = true, buffer = term_bufnr})
 
+    -- cd the terminal to the project root, wherever it has wandered off to.
     vim.keymap.set('n', '<C-r>', function()
         local root = project_root(vim.fn.getcwd())
         if root then
             vim.fn.chansend(vim.b[term_bufnr].terminal_job_id, "cd " .. vim.fn.shellescape(root) .. "\r")
         end
-        vim.cmd('normal 0"aY')
-        prompts[term_bufnr] = vim.fn.getreg('a')
-    end, {silent = true, buffer = term_bufnr})
-
-    local function jump_to_prompt(backward)
-        local flag = backward and 'b' or ''
-        if not prompts[term_bufnr] then
-            send_command(term_bufnr, "", get_osc_commands(term_bufnr)[1], "", true)
-            vim.defer_fn(function()
-                vim.cmd('normal 0"aY')
-                prompts[term_bufnr] = vim.fn.getreg('a')
-                vim.fn.search(vim.fn.escape(vim.fn.getreg('a'), '\\.*$^~[]'), flag)
-            end, 200)
-        else
-            if vim.fn.search(vim.fn.escape(prompts[term_bufnr], '\\.*$^~[]'), flag) == 0 then
-                prompts[term_bufnr] = nil
-            end
-        end
-    end
-
-    vim.keymap.set('n', '[p', function()
-        jump_to_prompt(true)
-    end, {silent = true, buffer = term_bufnr})
-
-    vim.keymap.set('n', ']p', function()
-        jump_to_prompt()
     end, {silent = true, buffer = term_bufnr})
 
     -- Entering terminal mode scrolls to the bottom, which is the only way to
@@ -776,7 +701,7 @@ local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
     -- from: to look at what it has said before writing to it. Only that: the
     -- window's alternate buffer and jump list lead to the file the prompt was
     -- opened from, which has no place in here. A buffer with no terminal of
-    -- its own -- edit_input()'s, edit_selection()'s -- ignores the key.
+    -- its own -- edit_selection()'s -- ignores the key.
     vim.keymap.set('n', '<C-o>', function()
         local term = vim.b[bufnr].foyer_term
         if not (term and vim.api.nvim_buf_is_valid(term)) then return end
@@ -968,83 +893,6 @@ local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
     attach_history(bufnr, opts.term)
 end
 
-local function back_to_prompt(osc_command, cb)
-    local pos0 = vim.api.nvim_win_get_cursor(0)
-    vim.fn.chansend(vim.b.terminal_job_id, osc_command)
-    vim.cmd('startinsert')
-    vim.defer_fn(function()
-        local pos1 = vim.api.nvim_win_get_cursor(0)
-        if pos0[1] == pos1[1] and pos0[2] == pos1[2] then
-            cb()
-        else
-            back_to_prompt(osc_command, cb)
-        end
-    end, 200)
-end
-
-local function get_terminal_input(cb)
-    local prompt_end = vim.api.nvim_win_get_cursor(0)
-
-    local term_bufnr = vim.api.nvim_get_current_buf()
-    -- Snapshot the buffer before the erase sequence scrolls the prompt away.
-    local lines = vim.api.nvim_buf_get_lines(term_bufnr, 0, -1, false)
-
-    back_to_prompt(get_osc_commands(term_bufnr)[1], function()
-
-        local prompt_start = vim.api.nvim_win_get_cursor(0)
-
-        vim.defer_fn(function()
-            local start_line = prompt_start[1]
-            local start_col = prompt_start[2]
-            local end_line = prompt_end[1]
-            local end_col = prompt_end[2]
-
-            local sliced_lines = {}
-            for i = start_line, end_line do
-                table.insert(sliced_lines, lines[i])
-            end
-            lines = sliced_lines
-
-            local result = ""
-
-            if #lines == 0 then
-                result = ""
-            elseif #lines == 1 then
-                result = string.sub(lines[1], start_col + 1, end_col + 1)
-            else
-                result = string.sub(lines[1], start_col + 1)
-
-                for i = 2, #lines - 1 do
-                    result = result .. "\n" .. lines[i]
-                end
-
-                result = result .. "\n" .. string.sub(lines[#lines], 1, end_col + 1)
-            end
-
-            cb(result)
-        end, 200)
-    end)
-end
-
-function M.edit_input()
-    if vim.bo.buftype ~= 'terminal' then
-        vim.notify("Not in a terminal buffer", vim.log.levels.ERROR)
-        return
-    end
-
-    get_terminal_input(function(input)
-        local term_bufnr = vim.api.nvim_get_current_buf()
-
-        create_window('floating', 'Edit Terminal Command', function(bufnr, win_id)
-            local text = input or ""
-            local lines = vim.split(text, '\n', {plain = true})
-            init_command_buf(bufnr, win_id, lines, function(cmd)
-                send_command(term_bufnr, cmd, get_osc_commands(term_bufnr)[1], "", false)
-            end, { start_insert = text ~= "", term = term_bufnr })
-        end, { term = term_bufnr })
-    end)
-end
-
 local term_bufs = {}
 
 local function resolve_command(term_key, root, launch_info)
@@ -1153,7 +1001,6 @@ function M.send_terminal_command(term_key, opts)
         return
     end
 
-    local OSC_commands = get_osc_commands(target_buf)
     local command = opts.command
     local interactive = opts.interactive or opts.selection
     if command == nil or command == "" then
@@ -1217,7 +1064,7 @@ function M.send_terminal_command(term_key, opts)
                     clear_foyer_matches()
                     cmd = with_selection(cmd, vim.b[bufnr].foyer_selection)
                     if not is_blank(cmd) then
-                        send_command(target_buf, cmd, OSC_commands[2], "\r", true)
+                        send_command(target_buf, cmd, "\r", true)
                     end
                     return target_buf
                 end, { start_insert = start_insert, term_title = term, term = target_buf, prompt_title = bare_title })
@@ -1249,7 +1096,7 @@ function M.send_terminal_command(term_key, opts)
         end, { term = target_buf })
     else
         if vim.b[target_buf] and vim.b[target_buf].terminal_job_id then
-            send_command(target_buf, command, OSC_commands[2], "\r", true)
+            send_command(target_buf, command, "\r", true)
         else
             vim.notify("Failed to send command to terminal", vim.log.levels.ERROR)
         end

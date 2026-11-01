@@ -22,8 +22,6 @@ to say gets written in a real Vim buffer first.**
   project agent's conversation or leaving the editor for a chat tab.
 - You handed the agent a long task ten minutes ago, and checking on it means
   hunting through your buffers for its terminal.
-- You've half-typed a long `docker run …` at the shell prompt, spotted a typo
-  forty characters back, and are now holding the left arrow key.
 - You typed the same "run the tests and summarise the failures" prompt
   yesterday, and the day before.
 
@@ -218,38 +216,7 @@ the agent of the `api` project.
 
 ---
 
-## Scenario 6: Rescuing the line you already half-typed *(experimental)*
-
-**The pain.** You're forty characters into a command, or halfway through a
-prompt in an agent's input box, and spot a mistake at the start. Readline
-motions are not Vim motions, and an agent's input box usually has fewer still.
-
-**With foyer.** Press `<C-x>e` in **any** terminal buffer: a shell, a REPL, an
-agent, even one foyer didn't start. Whatever is on the input line is lifted into
-a floating buffer, cursor at the end, ready to fix with Vim. Send it back and
-carry on editing it there.
-
-> **Experimental.** A terminal has no "give me your input line" request, so
-> foyer works it out: it sends the program's clear-input key (`Ctrl-U`) and
-> watches where the cursor lands. That works well in ordinary shells and in
-> agents that clear their input on `Ctrl-U`. An unusual or slow prompt can
-> confuse it, and a program configured with `''` as its clear-input key (see
-> `send_prefix`, under "Try it in two minutes") has nothing for foyer to read
-> back.
-
-```lua
-vim.api.nvim_create_autocmd('TermOpen', {
-    callback = function(ev)
-        vim.keymap.set('t', '<C-x>e',
-            '<C-\\><C-n><Cmd>lua require("foyer").edit_input()<CR>',
-            { buffer = ev.buf })
-    end,
-})
-```
-
----
-
-## Scenario 7: Prompts worth keeping
+## Scenario 6: Prompts worth keeping
 
 **The pain.** Good prompts get typed again and again, and terminal history is a
 blunt tool that doesn't survive a restart.
@@ -265,7 +232,7 @@ with Shift to make it the whole draft.
 
 ---
 
-## Scenario 8: One key to ask, and to check on it
+## Scenario 7: One key to ask, and to check on it
 
 **The pain.** You hand the agent a long task and go back to your code. A few
 minutes later you want to know how it's getting on, which means finding its
@@ -289,7 +256,6 @@ while it works? `<C-o>` takes you to the prompt.
   isolation.
 - **Clean yanks from terminals.** The trailing whitespace a terminal pads every
   line with is stripped when you yank.
-- **`[p` / `]p`** jump between shell prompts in the scrollback.
 - **`toggle_full_size()`** toggles any window to full screen and back, splits
   and floats alike; map it to a key of your own.
 - **`tab_switch()`** moves to the next window worth looking at, skipping the
@@ -311,10 +277,6 @@ Being clear about this saves you an afternoon:
   use, through its terminal. Bring your own agent.
 - **It doesn't scrape your screen.** The context an agent sees is what you
   put in the prompt: a selection, an `@` mention.
-- **Reading back a half-typed line is experimental.** `edit_input()` works by
-  sending the clear-input key and watching where the cursor lands, in a shell
-  or an agent alike. That's dependable with ordinary shells, but an unusual
-  prompt or a very slow one can confuse it.
 - **Some things are fixed for now.** The keymaps inside foyer's windows, but
   for the history picker's (`history.pick_key`), a few timings, and the
   register used by `edit_selection()` (`a`) can't be changed yet.
@@ -346,18 +308,3 @@ Then try it:
 2. Write a multi-line prompt and send it with `<C-s>`.
 3. Select a function, press `<leader>a c` to ask Claude Code this time, and
    type *"what does this do?"*.
-
-**Using `pi`?** Before each send, foyer clears the agent's input line with
-`Ctrl-U` and its screen with `Ctrl-L`. `pi` opens its model picker on `Ctrl-L`,
-which would swallow your prompt, so tell foyer to send only `Ctrl-U` to it:
-
-```lua
-opts = {
-    commands = { p = 'pi' },
-    send_prefix = { pi = { vim.keycode('<C-u>'), '' } },   -- { clear input, clear screen }
-},
-```
-
-`send_prefix` is keyed by program name, so it applies whichever letter runs
-`pi`, in every project. Any other program that uses those keys for something
-else can be given its own pair the same way.
