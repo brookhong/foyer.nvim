@@ -213,6 +213,10 @@ vim.api.nvim_create_autocmd('TermOpen', {
 vim.keymap.set('v', 'E', function()
     foyer.edit_selection()
 end, { desc = 'Edit selection in floating window' })
+
+-- Toggle any window, a prompt or a terminal of foyer's among them, between
+-- full screen and the size it had.
+vim.keymap.set('n', '<leader>z', foyer.toggle_full_size, { desc = 'Toggle full-size window' })
 ```
 
 ## API
@@ -367,7 +371,6 @@ where `<Up>` walks the history.
 | `<C-x><C-p>` / `<C-x><C-n>` | i | Ordinary insert-mode completion |
 | `<Esc>` | n | Close the window if the buffer is empty |
 | `<C-c>` | n | Close the window, discarding the draft |
-| `<C-x><C-x>` | n | Toggle the window between its previous size and full screen |
 | `<C-o>` | n | Show the prompt's terminal in its window; `<C-o>` there comes back |
 
 History is filtered by what you have typed: with a draft in the buffer, only the
@@ -417,9 +420,9 @@ let go again when the menu closes. A block put in with `<C-l>` is left out of
 history, which keeps the words around it.
 
 `edit_selection()`'s window is text you are editing rather than a prompt: it
-keeps `<CR>`, `<C-s>`, `<Esc>`, `<C-c>` and `<C-x><C-x>`, has no history, and
-always starts in normal mode. With no terminal behind it, `<C-o>` there does
-nothing, as it does in `edit_input()`'s.
+keeps `<CR>`, `<C-s>`, `<Esc>` and `<C-c>`, has no history, and always starts
+in normal mode. With no terminal behind it, `<C-o>` there does nothing, as it
+does in `edit_input()`'s.
 
 ### Terminal buffer
 
@@ -432,7 +435,6 @@ has only those three.
 | --- | --- | --- |
 | `[p` / `]p` | n | Jump to the previous / next shell prompt |
 | `<C-r>` | n | `cd` the terminal to the project root and re-learn the prompt |
-| `x` | n | Toggle the window between its previous size and full screen |
 | `<C-o>` | n | Back to the prompt the terminal was shown for in this window; in a window of your own, Vim's jump back |
 | `<CR>` / `<C-c>` / `<Esc>` | n | Close the terminal window |
 | `<C-x>i` | t | Paste register `a` at the prompt |

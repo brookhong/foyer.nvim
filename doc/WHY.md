@@ -290,7 +290,8 @@ while it works? `<C-o>` takes you to the prompt.
 - **Clean yanks from terminals.** The trailing whitespace a terminal pads every
   line with is stripped when you yank.
 - **`[p` / `]p`** jump between shell prompts in the scrollback.
-- **`x`** toggles a terminal window to full screen and back.
+- **`toggle_full_size()`** toggles any window to full screen and back, splits
+  and floats alike; map it to a key of your own.
 - **`tab_switch()`** moves to the next window worth looking at, skipping the
   slivers a full-screen window leaves behind.
 - **`jump()`** labels every tab, window, buffer and recent file, laid out as

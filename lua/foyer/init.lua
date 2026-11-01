@@ -597,11 +597,6 @@ get_osc_commands = function(term_bufnr)
     return { clear_input, clear_input .. (prefix[2] or '') }
 end
 
--- Map `key` to toggle the window between its current size and full screen.
-local function create_keymap_x(bufnr, key)
-    vim.keymap.set('n', key, layout.toggle_full_size, {silent = true, buffer = bufnr})
-end
-
 local prompts = {}
 
 local term_keymaps_group = vim.api.nvim_create_augroup('foyer_keymaps', { clear = false })
@@ -695,7 +690,6 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
         end, {silent = true, buffer = term_bufnr})
     end
 
-    create_keymap_x(term_bufnr, 'x')
     setup_terminal_keymaps(term_bufnr)
 
     -- Back to the prompt this terminal was shown for, named rather than taken
@@ -777,7 +771,6 @@ local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
 
     vim.keymap.set('n', '<CR>', on_enter, {silent = true, buffer = bufnr})
     vim.keymap.set('i', '<C-s>', on_enter, {silent = true, buffer = bufnr})
-    create_keymap_x(bufnr, '<C-x><C-x>')
 
     -- The terminal this prompt is for, in this window, where <C-o> comes back
     -- from: to look at what it has said before writing to it. Only that: the
