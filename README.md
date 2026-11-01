@@ -224,7 +224,7 @@ end, { desc = 'Edit selection in floating window' })
 | `send_terminal_command(term_key, opts)` | Drive a specific terminal directly. `opts.command` sends non-interactively; omit it to open the command buffer. `opts.auto_start = true` spawns the terminal if it is missing. |
 | `edit_input()` | Lift the terminal's current command line into a floating buffer. Must be called from a terminal buffer. |
 | `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |
-| `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float, width for a split. A neighbouring split keeps its minimum width, so a split may stop a few columns short. |
+| `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float; width and height for a split, beside its neighbours, above or below them, or both. Putting it back restores every split in the tab as it was, and leaves floats alone. A neighbouring split keeps its minimum size, so a split may stop a few columns or lines short. |
 | `jump()` | Jump to any tab, window, buffer or recent file by typing the hint label drawn over it; see below. |
 | `tab_switch()` | Move to the next window worth looking at: `CTRL-W w` order, wrapping around, skipping floats and windows a full-screen neighbour has squeezed to `'winminwidth'`/`'winminheight'`. With nothing left to step into, switches to the alternate buffer (`CTRL-^`) instead. A maximised diff pane restores the squeezed pane and steps into it. |
 | `is_idle(buf, threshold_ms)` | Whether `buf` has produced no output for `threshold_ms` (default 1000). |

@@ -279,10 +279,15 @@ edit_selection()
                                                     *foyer.toggle_full_size()*
 toggle_full_size()
     Toggle the current window between full screen and the size it had before:
-    height for a float, width for a split. The size is remembered per window,
-    so two windows toggle independently. Full screen is a request, not a
-    promise: a neighbouring split keeps its minimum width, so a split may stop
-    a few columns short of 'columns'.
+    height for a float; for a split, width and height both, so it fills the
+    screen whether it was split beside its neighbours, above or below them, or
+    in a layout of both, as CTRL-W | and CTRL-W _ together would. Putting it
+    back restores every split in the tab page to the size it had; floats,
+    which take no room from anyone, are left as they are. If splits have come
+    or gone since, that no longer fits them, and only the window's own width
+    and height go back, each only where a neighbour is left to take it from. The size is remembered per window.
+    Full screen is a request, not a promise: a neighbouring split keeps its
+    minimum size, so a split may stop a few columns or lines short.
 
                                                                 *foyer.jump()*
 jump()
