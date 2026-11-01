@@ -319,8 +319,8 @@ for. A window squeezed flat by a full-screen neighbour is left out, like
 `tab_switch()` does; what it shows is still listed among the buffers. The
 terminals foyer started are not: `terminal_command()` reaches this project's and
 the global ones, in a window with the prompt a `<C-o>` away, and another
-project's is reached from that project. One shown in a window is still among
-the tabs, and a terminal you opened yourself is listed as any buffer.
+project's is reached from that project. One shown in a window is still listed
+under Windows, and a terminal you opened yourself is listed as any buffer.
 
 It opens in a bordered window titled *Jump / Foyer*, with the keys along its
 bottom edge, and fits it whatever it holds. Tabs too many to sit side by side

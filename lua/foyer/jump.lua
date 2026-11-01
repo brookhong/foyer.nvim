@@ -239,8 +239,8 @@ end
 -- started. Their names, a pid and a command line, would not tell one
 -- project's agent from another's; terminal_command() reaches this project's
 -- and the global ones, in a window where the prompt is a <C-o> away, and
--- another project's is reached from that project. One in a window still
--- shows among the tabs.
+-- another project's is reached from that project. One in a window is still
+-- listed under Windows.
 local function listedBufs()
     return vim.tbl_filter(function(b)
         return not vim.b[b.bufnr].foyer_terminal
@@ -542,7 +542,7 @@ local function layoutBlock(node, nr, cur_win, names, cap)
     return block
 end
 
--- Tabs: one cell per tab (matching the tabline order); inside each cell the
+-- Windows: one cell per tab (matching the tabline order); inside each cell the
 -- tab's windows are laid out the way they are placed on screen. Cells sit side
 -- by side as long as they fit in {max_width}, then carry on in a band below,
 -- under a line of BAND_SEP, so that no line is wider than the picker. A cell
@@ -733,10 +733,10 @@ function M.open()
             tabWidth, tabHeight = layout(tabLines, max_width)
         end
 
-        -- buffers shown in a window listed in Tabs are already reachable, skip them
+        -- buffers shown in a window listed in Windows are already reachable, skip them
         local exclude = {}
         if #tabData > 0 then
-            exclude[api.nvim_get_current_buf()] = true -- shown (unmarked) in Tabs
+            exclude[api.nvim_get_current_buf()] = true -- shown (unmarked) in Windows
         end
         for _, w in ipairs(tabData) do
             exclude[api.nvim_win_get_buf(w.win)] = true
@@ -759,7 +759,7 @@ function M.open()
     end
 
     -- pass 2: names among buffers and old files together, so that labels are
-    -- unique across all groups; rebuild Tabs/Buffers if any of their labels grew
+    -- unique across all groups; rebuild Windows/Buffers if any of their labels grew
     if #oldPaths > 0 then
         local all = uniqueDisplayNames(nameBufs, oldPaths)
         local changed = false
@@ -815,7 +815,7 @@ function M.open()
         end
     end
     if #tabData > 0 then
-        append(tabLines, tabData, "Tabs|"..#tabData, tabHls, tabSlots)
+        append(tabLines, tabData, "Windows|"..#tabData, tabHls, tabSlots)
     end
     if bufTotal > 0 then
         append(bufLines, bufData, "Buffers|"..bufTotal, bufHls, bufSlots)

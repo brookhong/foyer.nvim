@@ -2,9 +2,10 @@
 
 The picker `foyer.jump()` opens has three groups, all labelled with file names:
 
-- **Tabs** shows each tab's windows the way they are split on screen, except
-  windows squeezed flat by a full-screen neighbour;
-- **Buffers** lists the other listed buffers, as a flat list;
+- **Windows** shows each tab's windows the way they are split on screen, one
+  cell per tab, except windows squeezed flat by a full-screen neighbour;
+- **Buffers** lists the other listed buffers, but for the terminals foyer
+  started, as a flat list;
 - **Old files** lists recently opened files that aren't loaded, as a flat list.
 
 When different entries have the same file name (`init.lua`, `config.md`, ...),
@@ -15,7 +16,7 @@ from anywhere):
 
 ```
 ╭──────────────────────── Jump / Foyer ────────────────────────╮
-│                         『Tabs|2 』                          │
+│                        『Windows|2 』                        │
 ││ a  x/src/init.lua │ z/init.lua  s  y/src/init.lua │         │
 │                                                              │
 │                        『Buffers|2 』                        │
@@ -25,12 +26,13 @@ from anywhere):
 ││ g  q/src/init.lua │ q  notes/config.md │ w  dot/config.md │ │
 ││ e  qbt/solo.txt │                                           │
 │                                                              │
-╰─────────────────── Type hint labels to pick, <Esc> to cancel ╯
+╰─────────────────── label: go · Shift: here / new tab · <Esc> ╯
 ```
 
 The picker is a float with a rounded border, titled `Jump / Foyer` and with the
 keys along its bottom edge; inside it, each group's title (`setTitle`) is
-centred as `『Tabs|2 』`, the count after the bar.
+centred as `『Windows|2 』`, the count after the bar: the windows there are to
+pick, the current one not counted.
 
 Because labels are unique, no group needs directory headings.
 
@@ -44,7 +46,7 @@ M.open()
  │           + getbufinfo{ buflisted = true }    -- plus every listed buffer
  │
  ├─ pass 1: names = uniqueDisplayNames(nameBufs)
- │          buildTabsAndBuffers(names)           -- Tabs + Buffers lines
+ │          buildTabsAndBuffers(names)           -- Windows + Buffers lines
  │          oldPaths = collectOldFiles(marks left)
  │
  ├─ pass 2: names = uniqueDisplayNames(nameBufs, oldPaths)
@@ -67,18 +69,18 @@ another reason `names` is passed in as a parameter.
 ### Why two passes
 
 How many old files are shown depends on how many marks
-(`jump.characters`) Tabs and Buffers have already used. That needs
-Tabs and Buffers built first, which needs names. But the names should also
+(`jump.characters`) Windows and Buffers have already used. That needs
+Windows and Buffers built first, which needs names. But the names should also
 take old files into account. So:
 
-1. **Pass 1** names buffers alone, builds Tabs and Buffers, and from the marks
+1. **Pass 1** names buffers alone, builds Windows and Buffers, and from the marks
    left over works out which old files to show (`collectOldFiles`).
 2. **Pass 2** names buffers and those old files together. If an old file made
    any buffer's label longer (e.g. buffer `main.lua` becomes `z/main.lua`
-   because of old file `k/main.lua`), Tabs and Buffers are rebuilt with the new
+   because of old file `k/main.lua`), Windows and Buffers are rebuilt with the new
    labels. Otherwise the pass-1 lines are kept.
 
-Rebuilding doesn't change the number of Tabs/Buffers entries (except in the
+Rebuilding doesn't change the number of Windows/Buffers entries (except in the
 rare case where longer labels make Buffers run out of height), so the old-file
 list from pass 1 stays valid.
 
@@ -215,7 +217,7 @@ entries would elide to the same name, they keep their full ones.
 
 ## Step 3: draw the entries
 
-### Tabs — `buildLinesForTabs(names, max_width)` / `layoutBlock(node, nr, cur_win, names, cap)`
+### Windows — `buildLinesForTabs(names, max_width)` / `layoutBlock(node, nr, cur_win, names, cap)`
 
 `names` is passed down the recursive `layoutBlock` call. At each leaf:
 
@@ -263,7 +265,7 @@ separator line, and how much of a name `shorten` keeps.
 ### Flat lists — `packEntries(entries, max_width, max_height)`
 
 Shared by Buffers and Old files. An entry wider than a whole line is cut to
-fit with `shorten`, as Tabs does. Each entry is `{ name, current, noname }`
+fit with `shorten`, as Windows does. Each entry is `{ name, current, bufnr }`
 and is drawn as `ENTRY_PREFIX` (a space, the two-cell `LABEL_SLOT`, a space),
 the name, a space and `COL_SEP` (`│`). The current buffer is told apart by its
 color (`FoyerJumpCurrent`), not by a marker.
@@ -276,7 +278,8 @@ marks always match the entries shown.
 
 ### Buffers — `buildLinesForBuffers(max_width, max_height, exclude, names)`
 
-Filters out the `exclude`d buffers (those shown in Tabs), sorts the rest by
+Filters out the `exclude`d buffers (those shown in Windows) and the terminals
+foyer started (`listedBufs`), sorts the rest by
 last use, and packs them with labels `names[buf.bufnr]`.
 
 ### Old files — `buildLinesForOldFiles(paths, lineTotal, max_width, names)`
@@ -305,7 +308,7 @@ There is no syntax file: all highlights are extmarks in the `foyer_jump_hl`
 namespace, since the positions are known while building the lines.
 
 - `packEntries` and `layoutBlock` record `{s, e, group}` for every name in
-  `hls`, in 0-based byte columns. As Tabs cells are padded and joined (`row`
+  `hls`, in 0-based byte columns. As Windows cells are padded and joined (`row`
   children, then cells into a line), each range is shifted by the byte length
   of the text before it.
 - `append` in `M.open` adds the title line of each group, and moves
@@ -313,9 +316,10 @@ namespace, since the positions are known while building the lines.
 - After `nvim_buf_set_lines`, the ranges are applied with
   `nvim_buf_set_extmark(..., { end_col = e, hl_group = group })`.
 
-The group is picked by `nameHl(current, noname)`: `FoyerJumpNoName` for
-buffers without a file name (even when current), else `FoyerJumpCurrent`
-for the current buffer or window, else `FoyerJumpName`. Titles use
+The group is picked by `nameHl(current, bufnr)`: `FoyerJumpCurrent` for the
+current buffer or window, else `FoyerJumpTerminal` for a terminal foyer
+started, else `FoyerJumpNoName` for a buffer without a file name, else
+`FoyerJumpName`; an old file, with no buffer, is `FoyerJumpName`. Titles use
 `FoyerJumpTitle`.
 
 `setupHighlights()` runs every time the picker opens and on every

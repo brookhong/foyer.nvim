@@ -168,7 +168,7 @@ H.test('a key that is no label hands over to the fallback', function()
 end)
 
 H.test('a window squeezed flat is left out, its buffer still offered', function()
-    H.eq('Tabs', sections()['README.md'], 'as a window while it has room')
+    H.eq('Windows', sections()['README.md'], 'as a window while it has room')
     -- Full width for LICENSE squeezes README.md's window to a sliver.
     child.lua('require("foyer").toggle_full_size()')
     local squeezed = sections()
@@ -349,7 +349,7 @@ H.test('a terminal of foyer\'s shown in a window has a colour of its own', funct
         return out
     ]])
     terms.type('<Esc>')
-    H.eq('FoyerJumpTerminal', groups['by-foyer'], 'foyer\'s, among the tabs: ' .. vim.inspect(groups))
+    H.eq('FoyerJumpTerminal', groups['by-foyer'], 'foyer\'s, under Windows: ' .. vim.inspect(groups))
     H.eq('FoyerJumpName', groups['by-hand'], 'one opened by hand, among the buffers: ' .. vim.inspect(groups))
 end)
 
