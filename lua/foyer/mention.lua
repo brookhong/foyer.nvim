@@ -275,11 +275,24 @@ local function accept_key(bufnr, key, as_block)
     end
 end
 
+-- Whether a buffer may have a 'completeopt' of its own (0.11 and later).
+local local_completeopt = (function()
+    local ok, info = pcall(vim.api.nvim_get_option_info2, 'completeopt', {})
+    return ok and info.scope == 'buf'
+end)()
+
 -- <CR> and <C-l> are taken only while a mention is open, and given back the
 -- moment it closes: the rest of the time <CR> is the newline of a multi-line
 -- prompt, and a mapping on it could not tell the two apart -- it runs before
 -- the keys typed ahead of it are in the line.
 local function take_keys(bufnr)
+    -- One entry stays a menu rather than being taken on the spot -- for the
+    -- mention's menu only: ordinary completion in the prompt, <C-n> on a
+    -- word, behaves as it does in any other buffer.
+    if local_completeopt then
+        active[bufnr].completeopt = vim.bo[bufnr].completeopt
+        vim.bo[bufnr].completeopt = 'menuone,noinsert'
+    end
     vim.keymap.set('i', '<CR>', accept_key(bufnr, '<CR>', false), { buffer = bufnr, expr = true })
     vim.keymap.set('i', '<C-l>', accept_key(bufnr, '<C-l>', true), { buffer = bufnr, expr = true })
 end
@@ -288,6 +301,10 @@ function M.stop(bufnr)
     local state = active[bufnr]
     if not state then return end
     active[bufnr] = nil
+    -- Back to the buffer's own, empty for none: the global one.
+    if state.completeopt ~= nil and vim.api.nvim_buf_is_valid(bufnr) then
+        vim.bo[bufnr].completeopt = state.completeopt
+    end
     for _, key in ipairs({ '<CR>', '<C-l>' }) do
         pcall(vim.keymap.del, 'i', key, { buffer = bufnr })
     end
@@ -304,11 +321,6 @@ function M.attach(bufnr, mention)
     vim.b[bufnr].foyer_mention = mention
     if vim.b[bufnr].foyer_mention_attached then return end
     vim.b[bufnr].foyer_mention_attached = true
-
-    -- One entry stays a menu rather than being taken on the spot, where the
-    -- option lets a buffer say so (0.11 and later).
-    local ok, info = pcall(vim.api.nvim_get_option_info2, 'completeopt', {})
-    if ok and info.scope == 'buf' then vim.bo[bufnr].completeopt = 'menuone,noinsert' end
 
     vim.keymap.set('i', '@', function()
         -- Everything is read once the `@` is in: a mapping can run before

@@ -17,7 +17,7 @@ until you are done with it here.
   keyed by project root, spawned on demand, and reused; a `scope = 'global'`
   one is kept for the whole session instead.
 - **Per-terminal command history** — persisted across sessions in
-  `stdpath('cache')/foyer.json`, scoped per terminal name. `<C-p>`/`<C-n>`
+  `stdpath('cache')/foyer.json`, scoped per terminal name. `<Up>`/`<Down>`
   walk it, and typing first filters the history by substring, with the match
   highlighted. `<C-f>` lists your most used prompts, ranked by frequency and
   recency.
@@ -104,15 +104,31 @@ require('foyer').setup({
     -- true.
     mention = true,
 
-    -- The key in the prompt buffer, normal and insert mode, that lists your
-    -- most used prompts behind hint labels. false maps none. Defaults to
-    -- '<C-f>'.
-    history = { pick_key = '<C-f>' },
-
-    -- The key, in normal mode in a terminal foyer started, that switches to
-    -- this project's terminal used last before it. false maps none. Defaults
-    -- to '<C-t>'.
-    switch_key = '<C-t>',
+    -- The keys foyer maps in its own buffers, by action; see "Mappings inside
+    -- the plugin's windows" for what each does. Only the actions you name
+    -- change. An action takes a key or a list of keys, put in the modes it
+    -- has by default; a table by mode, naming the modes itself; or false, for
+    -- no key. A list replaces the default list rather than adding to it.
+    -- Read as each prompt or terminal is set up, so calling setup() again
+    -- leaves the ones already open as they were. Shown here with their
+    -- defaults.
+    keys = {
+        prompt = {
+            send = { n = '<CR>', i = '<C-s>' },
+            close = { n = '<C-c>' },
+            close_if_empty = { n = '<Esc>' },
+            terminal = { n = '<C-o>' },
+            history_prev = { n = { '<Up>', '<C-p>' }, i = '<Up>' },
+            history_next = { n = { '<Down>', '<C-n>' }, i = '<Down>' },
+            history_pick = { n = '<C-f>', i = '<C-f>' },
+        },
+        terminal = {
+            switch = { n = '<C-t>' },
+            prompt = { n = '<C-o>' },
+            close = { n = { '<CR>', '<C-c>', '<Esc>' } },
+            cd_root = { n = '<C-r>' },
+        },
+    },
 
     -- jump(): the keys its hint labels are made of, the 'winblend' of the
     -- backdrop behind it (false for none), and what a key that is no label
@@ -307,8 +323,12 @@ as it is.
 
 ## Mappings inside the plugin's windows
 
-These are buffer-local. Only the history picker's key and the terminal switch
-key are configurable, as `history.pick_key` and `switch_key`.
+These are buffer-local, and each is set by the `keys` action named beside it,
+see [Configuration](#configuration): `keys.prompt.send = { n = '<Leader>s' }`
+moves sending to `<Leader>s` in normal mode and maps nothing in insert mode,
+`keys.terminal.cd_root = false` leaves `<C-r>` alone. `edit_selection()`'s
+window takes `send`, `close` and `close_if_empty` from `keys.prompt`; the `@`
+menu's keys are not configurable.
 
 ### Command buffer
 
@@ -317,22 +337,27 @@ going to carry a `selection` — starts in insert mode at the end of its text. O
 opened with nothing to say starts in normal mode, where `<Up>` walks the
 history.
 
-| Key | Mode | Action |
-| --- | --- | --- |
-| `<CR>` | n | Send the buffer to the terminal |
-| `<C-s>` | i | Send the buffer to the terminal |
-| `<C-p>` / `<Up>` | n | Previous history entry |
-| `<C-n>` / `<Down>` | n | Next history entry |
-| `<C-p>` / `<C-n>` | i | Previous / next history entry; with a menu open, move through it |
-| `<C-f>` | n, i | Label the most used prompts: a label inserts one at the cursor, Shift+label replaces the draft with it; with a menu open, the menu's. Set by `history.pick_key` |
-| `@` | i | Mention an open file, see below |
-| `<C-x><C-p>` / `<C-x><C-n>` | i | Ordinary insert-mode completion |
-| `<Esc>` | n | Close the window if the buffer is empty |
-| `<C-c>` | n | Close the window, discarding the draft |
-| `<C-o>` | n | Show the prompt's terminal in its window; `<C-o>` there comes back |
+| Key | Mode | `keys.prompt` | Action |
+| --- | --- | --- | --- |
+| `<CR>` | n | `send` | Send the buffer to the terminal |
+| `<C-s>` | i | `send` | Send the buffer to the terminal |
+| `<C-p>` / `<Up>` | n | `history_prev` | Previous history entry |
+| `<C-n>` / `<Down>` | n | `history_next` | Next history entry |
+| `<Up>` / `<Down>` | i | `history_prev` / `history_next` | Previous / next history entry from the first / last line; elsewhere in a draft of many lines, or with a menu open, the keys' own |
+| `<C-f>` | n, i | `history_pick` | Label the most used prompts: a label inserts one at the cursor, Shift+label replaces the draft with it; with a menu open, the menu's |
+| `@` | i | | Mention an open file, see below |
+| `<Esc>` | n | `close_if_empty` | Close the window if the buffer is empty |
+| `<C-c>` | n | `close` | Close the window, discarding the draft |
+| `<C-o>` | n | `terminal` | Show the prompt's terminal in its window; `<C-o>` there comes back |
 
 History is filtered by what you have typed: with a draft in the buffer, only the
 entries containing it are walked, and the match is highlighted.
+
+In insert mode `<C-p>` and `<C-n>` are completion's, as anywhere else, and
+`<Up>`/`<Down>` walk history as a shell's do: in a draft of many lines they
+move the cursor until it is on the first line, or the last, and only from
+there recall an entry. A walk under way goes on wherever the cursor is, so an
+entry of many lines is stepped over in one press.
 
 `<Up>` walks history by recency. `<C-f>` lists it by how *often* and how
 recently each prompt was sent — a prompt's uses count for half as much for
@@ -382,20 +407,17 @@ in normal mode. With no terminal behind it, `<C-o>` there does nothing.
 
 ### Terminal buffer
 
-`<C-t>` and the last three are on every terminal this plugin opens. The rest
-are attached when a terminal is shown in one of this plugin's own windows,
-which `switch` does not do — it hands the terminal your window, so a terminal
-opened that way has only those four.
+`<C-t>` is on every terminal this plugin opens. The rest are attached when a
+terminal is shown in one of this plugin's own windows, which `switch` does not
+do — it hands the terminal your window, so a terminal opened that way has only
+`<C-t>`. None is mapped in terminal mode, where every key is the program's.
 
-| Key | Mode | Action |
-| --- | --- | --- |
-| `<C-t>` | n | Switch to this project's terminal used last before this one, see below. Set by `switch_key` |
-| `<C-r>` | n | `cd` the terminal to the project root |
-| `<C-o>` | n | Back to the prompt the terminal was shown for in this window; in a window of your own, Vim's jump back |
-| `<CR>` / `<C-c>` / `<Esc>` | n | Close the terminal window |
-| `<C-x>i` | t | Paste register `a` at the prompt |
-| `<C-x>w` | t | Switch window, or tab when there is only one window |
-| `<C-x>c` | t | Close the terminal buffer |
+| Key | Mode | `keys.terminal` | Action |
+| --- | --- | --- | --- |
+| `<C-t>` | n | `switch` | Switch to this project's terminal used last before this one, see below |
+| `<C-r>` | n | `cd_root` | `cd` the terminal to the project root |
+| `<C-o>` | n | `prompt` | Back to the prompt the terminal was shown for in this window; in a window of your own, the key's own meaning — Vim's jump back |
+| `<CR>` / `<C-c>` / `<Esc>` | n | `close` | Close the terminal window |
 
 Yanking in a terminal buffer strips trailing whitespace from every line — a
 terminal pads its lines to the window width, and that padding is never what you
@@ -408,9 +430,8 @@ launched, shown, or its prompt is entered. Global terminals are left out, and
 none is started. The other terminal is shown in the same window; in the
 sidebar or float foyer keeps, its prompt is a `<C-o>` away with the draft you
 left in it, and the terminal you left keeps its own. In a window of your own,
-the other terminal is just shown there. `<C-t>`
-otherwise goes back up the tag stack, which a terminal is never on, so the key
-is free there.
+the other terminal is just shown there. `<C-t>` otherwise goes back up the tag
+stack, which a terminal is never on, so the key is free there.
 
 A terminal follows its output in every window showing it, once foyer has shown
 it or sent it something: the cursor goes to the last line, so what comes after
@@ -471,9 +492,8 @@ autocmd or after `:colorscheme`.
   not understand bracketed paste will show the `[200~` escapes as text — turn
   `bracketed_paste` off for it. Single-line sends are never wrapped.
 - `edit_selection()` goes through register `a`: the selection is yanked into it
-  on the way in, and the edited text on the way back out. `<C-x>i` in a terminal
-  pastes register `a`, whatever put it there.
-- Timings, keymaps, and the register are hardcoded.
+  on the way in, and the edited text on the way back out.
+- Timings and the register are hardcoded.
 
 ## License
 

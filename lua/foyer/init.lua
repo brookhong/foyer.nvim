@@ -9,6 +9,7 @@ local create_window = window.create_window
 local options = require('foyer.config')
 local config = options.options
 local project_root = options.project_root
+local map = options.map
 local context = require('foyer.context')
 local selection_appendix = context.selection_appendix
 local capture = context.capture
@@ -607,33 +608,8 @@ local function setup_terminal_keymaps(buf)
 
     -- <C-t> goes back up the tag stack, which a terminal never is on, so the
     -- key is free for something of foyer's own.
-    if config.switch_key then
-        vim.keymap.set('n', config.switch_key, function() M.switch_terminal() end,
-            { buffer = buf, desc = 'Switch to the terminal used last' })
-    end
-
-    vim.keymap.set('t', '<C-x>i', function()
-        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-\\><C-n>"apA', true, true, true), 'm', true)
-    end, { buffer = buf, desc = 'Paste from register a' })
-
-    vim.keymap.set('t', '<C-x>w', function()
-        local wins = vim.api.nvim_tabpage_list_wins(0)
-        if #wins > 1 then
-            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-\\><C-n><C-w>w', true, true, true), 'm', true)
-        else
-            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-\\><C-n>gT', true, true, true), 'm', true)
-        end
-    end, { buffer = buf, desc = 'Switch window or tab' })
-
-    vim.keymap.set('t', '<C-x>c', function()
-        local wins = vim.api.nvim_tabpage_list_wins(0)
-        local tabs = vim.api.nvim_list_tabpages()
-        if #wins == 1 and #tabs == 1 then
-            vim.cmd('b#')
-        else
-            vim.cmd('q')
-        end
-    end, { buffer = buf, desc = 'Close terminal buffer' })
+    map(buf, 'terminal', 'switch', function() M.switch_terminal() end,
+        { desc = 'Switch to the terminal used last' })
 
     vim.api.nvim_create_autocmd('TextYankPost', {
         group = term_keymaps_group,
@@ -673,11 +649,7 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
     -- Set for this buffer in this window only, so a borrowed window does not
     -- keep it once its own buffer is back.
     vim.wo[win_id][0].relativenumber = true
-    for _, key in ipairs({'<CR>', '<C-c>', '<Esc>'}) do
-        vim.keymap.set('n', key, function()
-            dismiss(win_id, prev_buf)
-        end, {silent = true, buffer = term_bufnr})
-    end
+    map(term_bufnr, 'terminal', 'close', function() dismiss(win_id, prev_buf) end)
 
     setup_terminal_keymaps(term_bufnr)
 
@@ -688,22 +660,24 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
     -- foyer's has its own prompt. In a window that is not foyer's, the key is
     -- Vim's again. The prompt's own BufEnter puts its title back.
     vim.w[win_id].foyer_prompt = prev_buf
-    vim.keymap.set('n', '<C-o>', function()
-        local prompt = vim.w.foyer_prompt
-        if prompt and vim.api.nvim_buf_is_valid(prompt) then
-            vim.api.nvim_set_current_buf(prompt)
-        else
-            vim.api.nvim_feedkeys(vim.v.count1 .. vim.keycode('<C-o>'), 'n', false)
+    map(term_bufnr, 'terminal', 'prompt', function(_, lhs)
+        return function()
+            local prompt = vim.w.foyer_prompt
+            if prompt and vim.api.nvim_buf_is_valid(prompt) then
+                vim.api.nvim_set_current_buf(prompt)
+            else
+                vim.api.nvim_feedkeys(vim.v.count1 .. vim.keycode(lhs), 'n', false)
+            end
         end
-    end, {silent = true, buffer = term_bufnr})
+    end, { build = true })
 
     -- cd the terminal to the project root, wherever it has wandered off to.
-    vim.keymap.set('n', '<C-r>', function()
+    map(term_bufnr, 'terminal', 'cd_root', function()
         local root = project_root(vim.fn.getcwd())
         if root then
             vim.fn.chansend(vim.b[term_bufnr].terminal_job_id, "cd " .. vim.fn.shellescape(root) .. "\r")
         end
-    end, {silent = true, buffer = term_bufnr})
+    end)
 
     -- The latest output in view, and what comes after it as it comes.
     follow(term_bufnr)
@@ -712,32 +686,29 @@ end
 local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
-    vim.keymap.set('n', '<Esc>', function()
+    map(bufnr, 'prompt', 'close_if_empty', function()
         if is_blank(buffer_text(bufnr)) then
             dismiss(win_id, bufnr)
         end
-    end, {silent = true, buffer = bufnr})
+    end)
 
-    vim.keymap.set('n', '<C-c>', function()
-        dismiss(win_id, bufnr)
-    end, {silent = true, buffer = bufnr})
+    map(bufnr, 'prompt', 'close', function() dismiss(win_id, bufnr) end)
 
-    vim.keymap.set('n', '<CR>', on_enter, {silent = true, buffer = bufnr})
-    vim.keymap.set('i', '<C-s>', on_enter, {silent = true, buffer = bufnr})
+    map(bufnr, 'prompt', 'send', on_enter)
 
     -- The terminal this prompt is for, in this window, where <C-o> comes back
     -- from: to look at what it has said before writing to it. Only that: the
     -- window's alternate buffer and jump list lead to the file the prompt was
     -- opened from, which has no place in here. A buffer with no terminal of
     -- its own -- edit_selection()'s -- ignores the key.
-    vim.keymap.set('n', '<C-o>', function()
+    map(bufnr, 'prompt', 'terminal', function()
         local term = vim.b[bufnr].foyer_term
         if not (term and vim.api.nvim_buf_is_valid(term)) then return end
         local win = vim.api.nvim_get_current_win()
         vim.api.nvim_set_current_buf(term)
         set_window_title(win, vim.b[bufnr].foyer_term_title or get_term_name(term))
         init_term_buf(term, win, bufnr)
-    end, {silent = true, buffer = bufnr})
+    end)
 end
 
 -- History navigation for one command buffer, over the history of {term_buf}.
@@ -791,25 +762,40 @@ local function attach_history(bufnr, term_buf)
         vim.api.nvim_win_set_cursor(0, {#new_lines, #new_lines[#new_lines]})
     end
 
-    vim.keymap.set('n', '<Up>', function() navigate_history(1) end, {silent = true, buffer = bufnr})
-    vim.keymap.set('n', '<C-p>', function() navigate_history(1) end, {silent = true, buffer = bufnr})
-    vim.keymap.set('n', '<Down>', function() navigate_history(-1) end, {silent = true, buffer = bufnr})
-    vim.keymap.set('n', '<C-n>', function() navigate_history(-1) end, {silent = true, buffer = bufnr})
-    -- With a menu open -- a mention's, or ordinary completion -- the keys walk
-    -- the menu, as they do anywhere else.
-    local function in_insert(delta, key)
-        return function()
-            if vim.fn.pumvisible() == 1 then
-                vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), 'n', false)
-            else
-                navigate_history(delta)
+    -- Whether the buffer holds the entry the last step recalled, untouched:
+    -- a walk under way, which a step goes on with wherever the cursor is.
+    local function walking()
+        return idx ~= #filtered_entries - 1 and filtered_entries[idx + 1] ~= nil
+            and filtered_entries[idx + 1].cmd == buffer_text(bufnr)
+    end
+
+    local line_keys = { [vim.keycode('<Up>')] = true, [vim.keycode('<Down>')] = true }
+
+    -- In Insert mode a key is still its own where history has no business:
+    -- with a menu open -- a mention's, or ordinary completion -- it walks the
+    -- menu, and <Up> or <Down> moves the cursor in a draft of many lines, as
+    -- a shell's does, until it is on the first line, or the last, with no
+    -- line further to go.
+    local function walker(delta)
+        return function(mode, lhs)
+            return function()
+                local own = false
+                if mode == 'i' then
+                    local row = vim.api.nvim_win_get_cursor(0)[1]
+                    local edge = delta > 0 and 1 or vim.api.nvim_buf_line_count(bufnr)
+                    own = vim.fn.pumvisible() == 1
+                        or (line_keys[vim.keycode(lhs)] and row ~= edge and not walking())
+                end
+                if own then
+                    vim.api.nvim_feedkeys(vim.keycode(lhs), 'n', false)
+                else
+                    navigate_history(delta)
+                end
             end
         end
     end
-    vim.keymap.set('i', '<C-p>', in_insert(1, '<C-p>'), {silent = true, buffer = bufnr})
-    vim.keymap.set('i', '<C-n>', in_insert(-1, '<C-n>'), {silent = true, buffer = bufnr})
-    vim.keymap.set('i', '<C-x><C-p>', '<C-p>', {silent = true, buffer = bufnr})
-    vim.keymap.set('i', '<C-x><C-n>', '<C-n>', {silent = true, buffer = bufnr})
+    map(bufnr, 'prompt', 'history_prev', walker(1), { build = true })
+    map(bufnr, 'prompt', 'history_next', walker(-1), { build = true })
 
     -- The prompts most worth recalling, most often and recently used first,
     -- each behind a one-key label: all of them, whatever the draft says, so
@@ -854,18 +840,16 @@ local function attach_history(bufnr, term_buf)
         end
     end
 
-    local key = config.history.pick_key
-    if key then
-        vim.keymap.set('n', key, function() pick('n') end, {silent = true, buffer = bufnr})
-        -- With a menu open the key is the menu's, as <C-p> and <C-n> are.
-        vim.keymap.set('i', key, function()
-            if vim.fn.pumvisible() == 1 then
-                vim.api.nvim_feedkeys(vim.keycode(key), 'n', false)
+    -- With a menu open the key is the menu's, as the history keys are.
+    map(bufnr, 'prompt', 'history_pick', function(mode, lhs)
+        return function()
+            if mode == 'i' and vim.fn.pumvisible() == 1 then
+                vim.api.nvim_feedkeys(vim.keycode(lhs), 'n', false)
             else
-                pick('i')
+                pick(mode == 'i' and 'i' or 'n')
             end
-        end, {silent = true, buffer = bufnr})
-    end
+        end
+    end, { build = true })
 end
 
 -- {opts.term} is the terminal the prompt is for: its history is the one

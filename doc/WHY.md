@@ -277,9 +277,9 @@ Being clear about this saves you an afternoon:
   use, through its terminal. Bring your own agent.
 - **It doesn't scrape your screen.** The context an agent sees is what you
   put in the prompt: a selection, an `@` mention.
-- **Some things are fixed for now.** The keymaps inside foyer's windows, but
-  for the history picker's (`history.pick_key`), a few timings, and the
-  register used by `edit_selection()` (`a`) can't be changed yet.
+- **Some things are fixed for now.** A few timings, and the register used by
+  `edit_selection()` (`a`), can't be changed yet. The keys inside foyer's
+  windows can, through `keys`.
 
 ---
 

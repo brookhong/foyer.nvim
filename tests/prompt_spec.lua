@@ -234,13 +234,13 @@ H.test('an error in the picker still brings the cursor back and the popup down',
     H.eq(wins, #vim.api.nvim_list_wins(), 'no popup left behind')
 end)
 
-H.test('history.pick_key = false leaves the key alone', function()
-    foyer.setup({ history = { pick_key = false } })
+H.test('keys.prompt.history_pick = false leaves the key alone', function()
+    foyer.setup({ keys = { prompt = { history_pick = false } } })
     H.reset(file)
     prompt()
     H.eq('', vim.fn.maparg('<C-f>', 'n'), 'no normal-mode key')
     H.eq('', vim.fn.maparg('<C-f>', 'i'), 'no insert-mode key')
-    foyer.setup({ history = { pick_key = '<C-f>' } })
+    foyer.setup({ keys = { prompt = { history_pick = { n = '<C-f>', i = '<C-f>' } } } })
 end)
 
 H.test('<C-c> closes the float and drops the draft', function()

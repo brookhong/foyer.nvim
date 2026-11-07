@@ -98,15 +98,33 @@ mention ~
     Whether `@` in a terminal's prompt lists the open files to mention, see
     |foyer-mention|. Defaults to `true`.
 
-history ~
-    `pick_key`, the key in the command buffer, Normal and Insert mode, that
-    lists the most used prompts behind hint labels, see |foyer-history|.
-    `false` maps no key. Defaults to `{ pick_key = '<C-f>' }`.
-
-switch_key ~
-    The key, in Normal mode in a terminal foyer started, that calls
-    |foyer.switch_terminal()|. `false` maps no key. Defaults to `'<C-t>'`,
-    which in a terminal would pop a tag stack it is never on.
+keys ~
+    The keys foyer maps in its own buffers, by action: `prompt` for the
+    command buffer, `terminal` for a terminal foyer started, see
+    |foyer-mappings| for what each does. Only the actions named change. An
+    action takes a key or a list of keys, put in the modes it has by
+    default; a table by mode, naming the modes itself; or `false`, for no
+    key. A list replaces the default list rather than adding to it. Keys
+    are read as each prompt or terminal is set up, so calling |foyer.setup()|
+    again leaves the ones already open as they were. The defaults: >lua
+        keys = {
+            prompt = {
+                send = { n = '<CR>', i = '<C-s>' },
+                close = { n = '<C-c>' },
+                close_if_empty = { n = '<Esc>' },
+                terminal = { n = '<C-o>' },
+                history_prev = { n = { '<Up>', '<C-p>' }, i = '<Up>' },
+                history_next = { n = { '<Down>', '<C-n>' }, i = '<Down>' },
+                history_pick = { n = '<C-f>', i = '<C-f>' },
+            },
+            terminal = {
+                switch = { n = '<C-t>' },
+                prompt = { n = '<C-o>' },
+                close = { n = { '<CR>', '<C-c>', '<Esc>' } },
+                cd_root = { n = '<C-r>' },
+            },
+        }
+<
 
 jump ~
     For |foyer.jump()|: `characters`, the keys its hint labels are made of
@@ -254,7 +272,7 @@ switch_terminal()
     in the same window; in the sidebar or float foyer keeps, its prompt is a
     <C-o> away with the draft left in it, and the terminal left keeps its
     own. In any other window the terminal is just shown there. Mapped to
-    `switch_key` in foyer's terminals.
+    `keys.terminal.switch` in foyer's terminals.
 
                                                       *foyer.edit_selection()*
 edit_selection()
@@ -347,8 +365,10 @@ make `fix this @src/main.c:88`, which every agent understands as it is.
 ==============================================================================
 6. MAPPINGS                                                   *foyer-mappings*
 
-All mappings below are buffer-local and created by the plugin. Only the
-history picker's key is configurable, see |foyer-history|.
+All mappings below are buffer-local and created by the plugin. Each is set
+by the `keys` action named beside it, see |foyer-setup|; the `@` menu's are
+not configurable. |foyer.edit_selection()|'s window takes `send`, `close`
+and `close_if_empty` from `keys.prompt`.
 
 In the command buffer ~
 
@@ -357,23 +377,26 @@ is going to carry a `selection` -- starts in Insert mode at the end of its
 text. One opened with nothing to say starts in Normal mode, where <Up> walks
 history.
 
-    <CR>              n    Send the buffer to the terminal
-    <C-s>             i    Send the buffer to the terminal
-    <C-p>, <Up>       n    Previous history entry
-    <C-n>, <Down>     n    Next history entry
-    <C-p>             i    Previous history entry
-    <C-n>             i    Next history entry
-                           (with a menu open, <C-p> and <C-n> move in it)
+    <CR>              n    Send the buffer to the terminal (`send`)
+    <C-s>             i    Send the buffer to the terminal (`send`)
+    <C-p>, <Up>       n    Previous history entry (`history_prev`)
+    <C-n>, <Down>     n    Next history entry (`history_next`)
+    <Up>              i    Previous history entry, from the first line
+                           (`history_prev`)
+    <Down>            i    Next history entry, from the last line
+                           (`history_next`)
+                           (elsewhere in a draft of many lines, or with a
+                           menu open, the keys' own)
     <C-f>             n i  Label the most used prompts: a label inserts
                            one at the cursor, Shift+label replaces the
                            draft with it; with a menu open,
-                           the menu's (`history.pick_key`)
+                           the menu's (`history_pick`)
     @                 i    Mention an open file, see |foyer-mention|
-    <C-x><C-p>        i    Ordinary insert-mode completion
-    <C-x><C-n>        i    Ordinary insert-mode completion
     <Esc>             n    Close the window if the buffer is empty
-    <C-c>             n    Close the window, discarding the draft
+                           (`close_if_empty`)
+    <C-c>             n    Close the window, discarding the draft (`close`)
     <C-o>             n    Show the prompt's terminal in its window
+                           (`terminal`)
 
 Once a prompt is sent, the terminal takes its window, and <C-o> from there
 comes back to the prompt emptied, with the selection it carried gone: a
@@ -388,6 +411,12 @@ survives restarts. Typing text before walking the history filters it to
 entries containing that text, and highlights the match with |hl-FoyerMatch|.
 
                                                                *foyer-history*
+In Insert mode <C-p> and <C-n> are completion's, as anywhere else, and
+<Up>/<Down> walk history as a shell's do: in a draft of many lines they move
+the cursor until it is on the first line, or the last, and only from there
+recall an entry. A walk under way goes on wherever the cursor is, so an entry
+of many lines is stepped over in one press.
+
 <Up> walks history by recency. <C-f> lists it by how often and how recently
 each prompt was sent: its number of uses, halved for every week since the
 last, in a popup just below the cursor, or above it with no room below.
@@ -398,7 +427,7 @@ Normal mode as |p| does, at it in Insert mode as typing does, and leaves the
 cursor past it; the label with Shift replaces the whole draft with it. Nothing
 is sent until you send it. The list is not filtered by the draft, so the draft
 never changes which prompt is behind which label; to search, use <Up>. The key
-is `history.pick_key`, see |foyer-setup|.
+is `keys.prompt.history_pick`, see |foyer-setup|.
 
                                                                *foyer-mention*
 In the prompt for one of your `commands`, `@` at the start of a word lists the
@@ -428,18 +457,17 @@ starts in Normal mode. With no terminal behind it, <C-o> there does nothing.
 
 In the terminal buffer ~
 
-<C-t>, the <C-x> mappings and the yank fix are on every terminal this plugin
-opens; the rest are attached when a terminal is shown in one of this plugin's
-own windows, which `switch` does not do -- it hands the terminal your window.
+<C-t> and the yank fix are on every terminal this plugin opens; the rest are
+attached when a terminal is shown in one of this plugin's own windows, which
+`switch` does not do -- it hands the terminal your window. None is mapped in
+Terminal mode, where every key is the program's. In `keys.terminal`:
 
-    <C-t>             n    |foyer.switch_terminal()|; set by `switch_key`
-    <C-r>             n    cd to the project root
+    <C-t>             n    |foyer.switch_terminal()| (`switch`)
+    <C-r>             n    cd to the project root (`cd_root`)
     <C-o>             n    Back to the prompt the terminal was shown for
-                           in this window; in one of yours, Vim's |CTRL-O|
-    <CR>, <C-c>, <Esc> n   Close the terminal window
-    <C-x>i            t    Paste register a at the prompt
-    <C-x>w            t    Switch window, or tab if there is only one window
-    <C-x>c            t    Close the terminal buffer
+                           in this window; in one of yours, the key's own
+                           meaning, Vim's |CTRL-O| (`prompt`)
+    <CR>, <C-c>, <Esc> n   Close the terminal window (`close`)
 
 Yanking in a terminal buffer strips trailing whitespace from every line, since
 a terminal pads its lines out to the window width.
@@ -509,8 +537,7 @@ colorscheme change clears them.
   text -- set `bracketed_paste = false` for it, see |foyer-setup|. Single-line
   sends are never wrapped.
 - |foyer.edit_selection()| goes through register a: the selection is yanked
-  into it on the way in, and the edited text on the way back out. <C-x>i in a
-  terminal pastes register a, whatever put it there.
-- Timings, mappings, and the register are hardcoded.
+  into it on the way in, and the edited text on the way back out.
+- Timings and the register are hardcoded.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

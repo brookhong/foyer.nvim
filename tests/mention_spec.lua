@@ -62,7 +62,7 @@ H.test('<CR> puts in @path:line, and a space after it', function()
     H.ok(not menu().visible, 'the menu has closed')
 end)
 
-H.test('<C-n> moves through the menu rather than history', function()
+H.test('<C-n> moves through the menu', function()
     prompt()
     child.type('@')
     child.type('<C-n>')
