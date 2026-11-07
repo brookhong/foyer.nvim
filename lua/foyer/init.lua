@@ -440,6 +440,21 @@ local function when_quiet(buf, max_ms, fn)
     vim.defer_fn(check, 50)
 end
 
+-- Put the cursor on the last line of {buf} in every window showing it, which
+-- is what makes a terminal window in Normal mode follow its output: with the
+-- cursor anywhere above, output runs on below the window and nothing scrolls.
+-- A window in Terminal mode follows anyway, and its cursor is the terminal's.
+local function follow(buf)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    local last = vim.api.nvim_buf_line_count(buf)
+    local cur = vim.api.nvim_get_current_win()
+    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+        if not (win == cur and vim.api.nvim_get_mode().mode == 't') then
+            vim.api.nvim_win_set_cursor(win, { last, 0 })
+        end
+    end
+end
+
 -- Send to a terminal that has not yet been seen taking a prompt, without
 -- pressing Enter on anything else. A program can come up on a screen of its
 -- own -- "Trust this workspace?", a login, an update -- and there the Enter
@@ -460,6 +475,9 @@ local function deliver_confirmed(term_bufnr, cmd, suffix, done)
             if screen(term_bufnr) ~= before then
                 unconfirmed[term_bufnr] = nil
                 vim.fn.chansend(job, suffix)
+                -- The reply is still to come, a while after the window was
+                -- last told to follow.
+                follow(term_bufnr)
                 return done('sent')
             end
             if vim.uv.now() - typed >= ECHO_MS then return done('unseen') end
@@ -479,18 +497,10 @@ local function deliver(term_bufnr, send, done)
         -- screen, and be taken for the text arriving.
         return deliver_confirmed(term_bufnr, send.cmd, send.suffix, done)
     end
-    local shown = vim.api.nvim_get_current_buf() == term_bufnr
-    -- Terminal mode follows the output, so what the send brings back is in
-    -- view; only for the terminal in front of the user, though, as a wait may
-    -- have taken them somewhere else by now.
-    if shown then vim.cmd('startinsert') end
-    vim.defer_fn(function()
-        vim.fn.chansend(job, as_paste(send.cmd) .. send.suffix)
-        if send.stopinsert and vim.api.nvim_get_current_buf() == term_bufnr then
-            vim.cmd('stopinsert')
-        end
-        done('sent')
-    end, shown and 100 or 0)
+    vim.fn.chansend(job, as_paste(send.cmd) .. send.suffix)
+    -- What the send brings back, in view wherever the terminal is shown.
+    follow(term_bufnr)
+    done('sent')
 end
 
 -- Sends not yet made, per terminal, in the order they were asked for: one at
@@ -540,8 +550,8 @@ end
 -- Send {cmd} to {term_bufnr} as it is, with {suffix} -- the Enter, if any --
 -- once the terminal has started, and in order with any other send still
 -- waiting for it.
-local function send_command(term_bufnr, cmd, suffix, stopinsert)
-    local send = { cmd = cmd, suffix = suffix, stopinsert = stopinsert }
+local function send_command(term_bufnr, cmd, suffix)
+    local send = { cmd = cmd, suffix = suffix }
     if pending[term_bufnr] then
         table.insert(pending[term_bufnr], send)
         return
@@ -666,19 +676,8 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
         end
     end, {silent = true, buffer = term_bufnr})
 
-    -- Entering terminal mode scrolls to the bottom, which is the only way to
-    -- bring the latest output into view without moving the cursor ourselves.
-    -- Only while the terminal is still the buffer in front: <C-o> may have
-    -- swapped the prompt back in by then, and Insert mode there, or leaving
-    -- it, is the user's business.
-    local function in_terminal() return vim.api.nvim_get_current_buf() == term_bufnr end
-    vim.defer_fn(function()
-        if not in_terminal() then return end
-        vim.cmd('startinsert')
-        vim.defer_fn(function()
-            if in_terminal() then vim.cmd('stopinsert') end
-        end, 200)
-    end, 200)
+    -- The latest output in view, and what comes after it as it comes.
+    follow(term_bufnr)
 end
 
 local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
@@ -852,7 +851,6 @@ local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
         local new_buf = on_command_input(cmd)
         if new_buf then
             vim.api.nvim_set_current_buf(new_buf)
-            vim.cmd('normal! G')
             -- The prompt has left this window; the frame should stop
             -- advertising it and name the terminal now sitting there, the
             -- way the caller named it if it did.
@@ -1064,7 +1062,7 @@ function M.send_terminal_command(term_key, opts)
                     clear_foyer_matches()
                     cmd = with_selection(cmd, vim.b[bufnr].foyer_selection)
                     if not is_blank(cmd) then
-                        send_command(target_buf, cmd, "\r", true)
+                        send_command(target_buf, cmd, "\r")
                     end
                     return target_buf
                 end, { start_insert = start_insert, term_title = term, term = target_buf, prompt_title = bare_title })
@@ -1096,7 +1094,7 @@ function M.send_terminal_command(term_key, opts)
         end, { term = target_buf })
     else
         if vim.b[target_buf] and vim.b[target_buf].terminal_job_id then
-            send_command(target_buf, command, "\r", true)
+            send_command(target_buf, command, "\r")
         else
             vim.notify("Failed to send command to terminal", vim.log.levels.ERROR)
         end

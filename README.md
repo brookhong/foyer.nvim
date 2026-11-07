@@ -390,6 +390,11 @@ Yanking in a terminal buffer strips trailing whitespace from every line — a
 terminal pads its lines to the window width, and that padding is never what you
 wanted to copy.
 
+A terminal follows its output in every window showing it, once foyer has shown
+it or sent it something: the cursor goes to the last line, so what comes after
+stays in view without entering terminal mode. Move the cursor up to read back,
+and the window stays put until the next send.
+
 ## Highlights
 
 | Group | Default | Used for |

@@ -422,6 +422,11 @@ windows, which `switch` does not do -- it hands the terminal your window.
 Yanking in a terminal buffer strips trailing whitespace from every line, since
 a terminal pads its lines out to the window width.
 
+A terminal follows its output in every window showing it, once foyer has shown
+it or sent it something: the cursor goes to the last line, so what comes after
+stays in view without Terminal mode. Move the cursor up to read back, and the
+window stays put until the next send.
+
 ==============================================================================
 7. HIGHLIGHTS                                               *foyer-highlights*
 
