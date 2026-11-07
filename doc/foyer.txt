@@ -202,8 +202,13 @@ A sidebar outlives the send that opened it, so sending again aims at the
 window already there rather than splitting another one: a draft still in it is
 yours and stays -- only an empty one takes a seeded `command` -- with the new
 selection replacing whatever the title advertised before, and the terminal
-left in there by the last send gives the window back to a fresh prompt. A
-floating window is transient and is simply opened again.
+left in there gives the window back to its prompt: empty after a send, still
+holding the draft if you only looked at the terminal with <C-o>. A
+floating window already open is reused the same way rather than stacked.
+Launching a different terminal hands the sidebar or float to the new
+terminal's prompt, in the same window; the previous terminal's prompt is set
+aside with its draft, and comes back as you left it when that terminal is
+launched there again.
 
 A terminal still producing output keeps the window instead, see
 |foyer.is_idle()|; there is no prompt for a selection to ride on then, so it

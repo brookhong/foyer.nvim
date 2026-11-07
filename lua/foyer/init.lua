@@ -1032,8 +1032,7 @@ function M.send_terminal_command(term_key, opts)
             })
         end
         create_window(win_type, title, function(bufnr, win_id, reused)
-            -- The terminal <C-o> shows. On the buffer, as a sidebar prompt
-            -- reused for another terminal is for that one now.
+            -- The terminal <C-o> shows, on the buffer.
             vim.b[bufnr].foyer_term = target_buf
             vim.b[bufnr].foyer_term_title = term
             -- A sidebar prompt outlives the send that opened it, so this send's
