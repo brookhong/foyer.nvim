@@ -304,6 +304,15 @@ local function create_window(type, title, on_ready, opts)
     end
 end
 
+-- The kind of window -- 'sidebar' or 'float' -- {win_id} is, if it is the one
+-- foyer keeps of that kind, in which a terminal launched is handed the window.
+local function tracked_kind(win_id)
+    for kind, win in pairs(active_cmd_wins) do
+        if win == win_id then return kind end
+    end
+end
+
+M.tracked_kind = tracked_kind
 M.clear_foyer_matches = clear_foyer_matches
 M.dismiss = dismiss
 M.set_window_title = set_window_title

@@ -561,6 +561,27 @@ local function send_command(term_bufnr, cmd, suffix)
 end
 
 local term_keymaps_group = vim.api.nvim_create_augroup('foyer_keymaps', { clear = false })
+
+-- When each terminal was last used, as a count rather than a time, so two uses
+-- in the same millisecond still come in order: launched, shown, or its prompt
+-- entered. What switch_terminal() goes back to.
+local last_used = {}
+local use_count = 0
+local function touch(term_buf)
+    use_count = use_count + 1
+    last_used[term_buf] = use_count
+end
+
+vim.api.nvim_create_autocmd('BufEnter', {
+    group = vim.api.nvim_create_augroup('foyer_last_used', { clear = true }),
+    callback = function(ev)
+        if vim.b[ev.buf].foyer_terminal then
+            touch(ev.buf)
+        elseif vim.b[ev.buf].foyer_prompt and vim.b[ev.buf].foyer_term then
+            touch(vim.b[ev.buf].foyer_term)
+        end
+    end,
+})
 local term_setup_done = {}
 
 local function setup_terminal_keymaps(buf)
@@ -577,11 +598,19 @@ local function setup_terminal_keymaps(buf)
         on_detach = function()
             term_setup_done[buf] = nil
             last_output_time[buf] = nil
+            last_used[buf] = nil
             starting[buf] = nil
             pending[buf] = nil
             unconfirmed[buf] = nil
         end,
     })
+
+    -- <C-t> goes back up the tag stack, which a terminal never is on, so the
+    -- key is free for something of foyer's own.
+    if config.switch_key then
+        vim.keymap.set('n', config.switch_key, function() M.switch_terminal() end,
+            { buffer = buf, desc = 'Switch to the terminal used last' })
+    end
 
     vim.keymap.set('t', '<C-x>i', function()
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-\\><C-n>"apA', true, true, true), 'm', true)
@@ -986,6 +1015,7 @@ function M.send_terminal_command(term_key, opts)
         term_bufs[bucket][term_key] = nil
         target_buf = nil
     end
+    if target_buf then touch(target_buf) end
 
     if not target_buf then
         if opts.auto_start then
@@ -1050,8 +1080,12 @@ function M.send_terminal_command(term_key, opts)
                 end
                 attach_history(bufnr, target_buf)
                 attach_mention(bufnr)
-                if opts.selection or not is_blank(buffer_text(bufnr)) then
-                    insert_at_end(bufnr, win_id)
+                if opts.show_terminal then
+                    -- The prompt is ready behind it; the terminal is what was
+                    -- asked for.
+                    vim.api.nvim_set_current_buf(target_buf)
+                    set_window_title(win_id, term)
+                    init_term_buf(target_buf, win_id, bufnr)
                 end
                 return
             end
@@ -1067,10 +1101,11 @@ function M.send_terminal_command(term_key, opts)
                 end, { start_insert = start_insert, term_title = term, term = target_buf, prompt_title = bare_title })
                 attach_mention(bufnr)
             end
-            if not M.is_idle(target_buf, 2000) then
-                -- Mid-output, the terminal takes the window instead of a
-                -- prompt, and a ref with no prompt to ride on goes nowhere.
-                -- Say so, and let the frame name what is actually in there.
+            -- Mid-output, or asked to show it, the terminal takes the window
+            -- instead of a prompt.
+            if opts.show_terminal or not M.is_idle(target_buf, 2000) then
+                -- A ref with no prompt to ride on goes nowhere. Say so, and
+                -- let the frame name what is actually in there.
                 if opts.selection then
                     vim.notify('Terminal busy, ' .. opts.selection .. ' not sent', vim.log.levels.WARN)
                 end
@@ -1282,6 +1317,45 @@ function M.terminal_command(opts)
     end
 
     M.send_terminal_command(term_key, opts)
+end
+
+-- Switch to this project's running terminal used last before the one in front
+-- of the user: two of them toggle, as CTRL-^ does for buffers. Global ones are
+-- left out, being no part of the project. In the sidebar or the float foyer
+-- keeps, the other terminal takes the window the way a launch does, with its
+-- prompt behind <C-o>, draft and all -- only showing the terminal rather than
+-- the prompt. In any other window the terminal is simply shown.
+function M.switch_terminal()
+    local current = vim.api.nvim_get_current_buf()
+    local root = project_root(vim.env.HOME)
+    -- What a function in `commands` is resolved with, as for any launch.
+    local opts = {}
+    capture(opts)
+    local best_key, best_buf
+    -- In key order, so terminals never used are taken in an order that holds.
+    local keys = vim.tbl_keys(config.commands)
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+        local entry = resolve_command(key, root, opts.launch_info)
+        local buf = not entry_is_global(entry) and term_bufs[root] and term_bufs[root][key]
+        if buf and buf ~= current and vim.api.nvim_buf_is_valid(buf)
+            and (not best_buf or (last_used[buf] or 0) > (last_used[best_buf] or 0)) then
+            best_key, best_buf = key, buf
+        end
+    end
+    if not best_buf then
+        vim.notify('foyer: no other terminal running for this project', vim.log.levels.INFO)
+        return
+    end
+
+    local kind = window.tracked_kind(vim.api.nvim_get_current_win())
+    if kind then
+        opts.win_type = kind
+        opts.show_terminal = true
+        M.send_terminal_command(best_key, opts)
+    else
+        vim.api.nvim_set_current_buf(best_buf)
+    end
 end
 
 function M.edit_selection()

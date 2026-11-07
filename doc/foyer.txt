@@ -103,6 +103,11 @@ history ~
     lists the most used prompts behind hint labels, see |foyer-history|.
     `false` maps no key. Defaults to `{ pick_key = '<C-f>' }`.
 
+switch_key ~
+    The key, in Normal mode in a terminal foyer started, that calls
+    |foyer.switch_terminal()|. `false` maps no key. Defaults to `'<C-t>'`,
+    which in a terminal would pop a tag stack it is never on.
+
 jump ~
     For |foyer.jump()|: `characters`, the keys its hint labels are made of
     (default `'asdfgqwertzxcvb'`), which also label the prompts
@@ -239,6 +244,17 @@ send_terminal_command({term_key}, {opts})
     `opts.command` set, the text is sent non-interactively; otherwise a
     command buffer opens. With `opts.auto_start` the terminal is created if it
     is missing.
+
+                                                     *foyer.switch_terminal()*
+switch_terminal()
+    Switch to this project's running terminal used last before the current
+    one, as CTRL-^ does for buffers: with two it toggles. A terminal counts
+    as used when it is launched, shown, or its prompt is entered. Global
+    terminals are left out, and none is started. The other terminal is shown
+    in the same window; in the sidebar or float foyer keeps, its prompt is a
+    <C-o> away with the draft left in it, and the terminal left keeps its
+    own. In any other window the terminal is just shown there. Mapped to
+    `switch_key` in foyer's terminals.
 
                                                       *foyer.edit_selection()*
 edit_selection()
@@ -412,10 +428,11 @@ starts in Normal mode. With no terminal behind it, <C-o> there does nothing.
 
 In the terminal buffer ~
 
-The <C-x> mappings and the yank fix are on every terminal this plugin opens;
-the rest are attached when a terminal is shown in one of this plugin's own
-windows, which `switch` does not do -- it hands the terminal your window.
+<C-t>, the <C-x> mappings and the yank fix are on every terminal this plugin
+opens; the rest are attached when a terminal is shown in one of this plugin's
+own windows, which `switch` does not do -- it hands the terminal your window.
 
+    <C-t>             n    |foyer.switch_terminal()|; set by `switch_key`
     <C-r>             n    cd to the project root
     <C-o>             n    Back to the prompt the terminal was shown for
                            in this window; in one of yours, Vim's |CTRL-O|

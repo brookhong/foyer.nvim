@@ -12,6 +12,9 @@ local config = {
     -- The command buffer's history: the key listing the most used prompts
     -- behind hint labels (false: no such key).
     history = { pick_key = '<C-f>' },
+    -- The key, in Normal mode in foyer's terminals, switching to the
+    -- project's terminal used last before this one (false: no such key).
+    switch_key = '<C-t>',
 }
 
 -- Directory markers locating the project root that scopes terminals.

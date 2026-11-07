@@ -109,6 +109,11 @@ require('foyer').setup({
     -- '<C-f>'.
     history = { pick_key = '<C-f>' },
 
+    -- The key, in normal mode in a terminal foyer started, that switches to
+    -- this project's terminal used last before it. false maps none. Defaults
+    -- to '<C-t>'.
+    switch_key = '<C-t>',
+
     -- jump(): the keys its hint labels are made of, the 'winblend' of the
     -- backdrop behind it (false for none), and what a key that is no label
     -- opens -- by default Telescope's oldfiles if installed, else vim.ui.select.
@@ -175,6 +180,7 @@ vim.keymap.set('n', '<leader>z', foyer.toggle_full_size, { desc = 'Toggle full-s
 | `setup(opts)` | Merge `opts` into the configuration. |
 | `terminal_command(opts)` | Pick a terminal by its `commands` key, spawn it if needed, then open a command buffer for it. A popup lists the keys if none is typed within `picker_delay`; `<Esc>` cancels. |
 | `send_terminal_command(term_key, opts)` | Drive a specific terminal directly. `opts.command` sends non-interactively; omit it to open the command buffer. `opts.auto_start = true` spawns the terminal if it is missing. |
+| `switch_terminal()` | Switch to this project's running terminal used last before the current one, see below. Global terminals are left out. |
 | `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |
 | `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float; width and height for a split, beside its neighbours, above or below them, or both. Putting it back restores every split in the tab as it was, and leaves floats alone. A neighbouring split keeps its minimum size, so a split may stop a few columns or lines short. |
 | `jump()` | Jump to any tab, window, buffer or recent file by typing the hint label drawn over it; see below. |
@@ -301,8 +307,8 @@ as it is.
 
 ## Mappings inside the plugin's windows
 
-These are buffer-local. Only the history picker's key is configurable, as
-`history.pick_key`.
+These are buffer-local. Only the history picker's key and the terminal switch
+key are configurable, as `history.pick_key` and `switch_key`.
 
 ### Command buffer
 
@@ -376,13 +382,14 @@ in normal mode. With no terminal behind it, `<C-o>` there does nothing.
 
 ### Terminal buffer
 
-The last three are on every terminal this plugin opens. The rest are attached
-when a terminal is shown in one of this plugin's own windows, which `switch`
-does not do — it hands the terminal your window, so a terminal opened that way
-has only those three.
+`<C-t>` and the last three are on every terminal this plugin opens. The rest
+are attached when a terminal is shown in one of this plugin's own windows,
+which `switch` does not do — it hands the terminal your window, so a terminal
+opened that way has only those four.
 
 | Key | Mode | Action |
 | --- | --- | --- |
+| `<C-t>` | n | Switch to this project's terminal used last before this one, see below. Set by `switch_key` |
 | `<C-r>` | n | `cd` the terminal to the project root |
 | `<C-o>` | n | Back to the prompt the terminal was shown for in this window; in a window of your own, Vim's jump back |
 | `<CR>` / `<C-c>` / `<Esc>` | n | Close the terminal window |
@@ -393,6 +400,17 @@ has only those three.
 Yanking in a terminal buffer strips trailing whitespace from every line — a
 terminal pads its lines to the window width, and that padding is never what you
 wanted to copy.
+
+`<C-t>` goes back to the terminal you used last before this one, among this
+project's running ones, as `CTRL-^` does for buffers: with two it toggles, and
+with more the third is a picker away. A terminal counts as used when it is
+launched, shown, or its prompt is entered. Global terminals are left out, and
+none is started. The other terminal is shown in the same window; in the
+sidebar or float foyer keeps, its prompt is a `<C-o>` away with the draft you
+left in it, and the terminal you left keeps its own. In a window of your own,
+the other terminal is just shown there. `<C-t>`
+otherwise goes back up the tag stack, which a terminal is never on, so the key
+is free there.
 
 A terminal follows its output in every window showing it, once foyer has shown
 it or sent it something: the cursor goes to the last line, so what comes after
