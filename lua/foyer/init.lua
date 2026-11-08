@@ -288,7 +288,8 @@ local function pick_prompt(entries, prompt_win)
     local counts = {}
     local count_width = 0
     for _, entry in ipairs(entries) do
-        counts[entry] = ('%d\u{00d7}'):format(entry.count or 1)
+        -- The user's own prompts wear a star where history has its count.
+        counts[entry] = entry.own and '\u{2605}' or ('%d\u{00d7}'):format(entry.count or 1)
         count_width = math.max(count_width, vim.fn.strdisplaywidth(counts[entry]))
     end
 
@@ -947,29 +948,43 @@ local function attach_history(bufnr, term_buf)
     map(bufnr, 'prompt', 'history_prev', walker(1), { build = true })
     map(bufnr, 'prompt', 'history_next', walker(-1), { build = true })
 
-    -- The prompts most worth recalling, most often and recently used first,
-    -- each behind a one-key label: all of them, whatever the draft says, so
-    -- the draft never moves a prompt to another key -- filtering is what <Up>
-    -- is for. The one picked goes in at the cursor, to build on; picked with
+    -- The terminal's own prompts, from `prompts`, in the order written, then
+    -- the ones in history most worth recalling, most often and recently used
+    -- first, each behind a one-key label: all of them, whatever the draft
+    -- says, so the draft never moves a prompt to another key -- filtering is
+    -- what <Up>, and `/` in the list, are for. The one picked goes in at the cursor, to build on; picked with
     -- Shift, it replaces the whole draft. The mode stays what it was, so an
     -- Insert-mode pick goes on typing.
     local function pick(mode)
+        -- The user's own prompts for this terminal first, in their order, so
+        -- each keeps its label whatever history does; then history, without
+        -- what is already among them.
+        local items, own = {}, {}
+        local key = vim.api.nvim_buf_is_valid(term_buf) and vim.b[term_buf].foyer_key
+        for _, text in ipairs(key and config.prompts[key] or {}) do
+            if not own[text] then
+                own[text] = true
+                table.insert(items, { cmd = text, own = true })
+            end
+        end
+
         local now = os.time()
         local ranked = {}
         for i, entry in ipairs(history[get_term_name(term_buf)] or {}) do
-            ranked[i] = { entry = entry, score = frecency(entry, now), order = i }
-        end
-        if #ranked == 0 then
-            vim.notify('foyer: no history yet', vim.log.levels.INFO)
-            return
+            if not own[entry.cmd] then
+                table.insert(ranked, { entry = entry, score = frecency(entry, now), order = i })
+            end
         end
         -- Ties go to the later one: entries are oldest first.
         table.sort(ranked, function(a, b)
             if a.score ~= b.score then return a.score > b.score end
             return a.order > b.order
         end)
-        local items = {}
-        for i, r in ipairs(ranked) do items[i] = r.entry end
+        for _, r in ipairs(ranked) do table.insert(items, r.entry) end
+        if #items == 0 then
+            vim.notify('foyer: no history yet', vim.log.levels.INFO)
+            return
+        end
 
         local win_id = vim.api.nvim_get_current_win()
         local entry, replace = pick_prompt(items, win_id)
@@ -1120,6 +1135,8 @@ local function open_term(root, term_key, launch_info)
     term_bufs[bucket][term_key] = vim.api.nvim_get_current_buf()
     -- Ours, for jump() to leave out of its buffers: this one is a key away.
     vim.b[term_bufs[bucket][term_key]].foyer_terminal = true
+    -- Its `commands` key, which the prompts of the user's own are listed by.
+    vim.b[term_bufs[bucket][term_key]].foyer_key = term_key
     -- Attach now so is_idle() actually tracks output from the very first
     -- command instead of reporting a busy terminal as idle.
     setup_terminal_keymaps(term_bufs[bucket][term_key])

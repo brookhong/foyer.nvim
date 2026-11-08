@@ -255,6 +255,68 @@ H.test('in the filter, <BS> edits, <Esc> clears, and <Esc> again closes', functi
     answer(nil)
 end)
 
+-- Each prompts test starts from none, whatever one before it left behind.
+local function no_prompts() require('foyer.config').options.prompts = {} end
+
+H.test('a terminal\'s own prompts come first, starred, in their order', function()
+    no_prompts()
+    foyer.setup({ prompts = {
+        q = { 'explain this error', 'review staged', 'write tests\nfor this' },
+        n = { 'only for the noisy one' },
+    } })
+    H.reset(file)
+    prompt()
+    vim.cmd('stopinsert')
+    -- Filter, back to picking, clear the filter, then s on the full list.
+    answers({ '/', 'r', 'e', 'v', '\r', '\27', 's' })
+    H.feed('<C-f>')
+    local rows = vim.tbl_filter(function(l) return l:match('^ %S  ') end, seen[1].lines)
+    H.ok(rows[1]:match('^ a  explain this error +\u{2605} $'), 'first, starred: ' .. rows[1])
+    H.ok(rows[2]:match('^ s  review staged +\u{2605} $'), 'in the order given, starred though sent: ' .. rows[2])
+    H.ok(rows[3]:match('^ d  write tests'), 'a prompt of many lines: ' .. rows[3])
+    H.ok(not rows[4]:find('\u{2605}', 1, true), 'then history: ' .. rows[4])
+    local all = table.concat(seen[1].lines, '\n')
+    H.eq(1, select(2, all:gsub('review staged', '')), 'once, not again from history')
+    H.ok(not all:find('noisy', 1, true), 'not another terminal\'s')
+    H.ok(seen[5].lines[1]:find('review staged', 1, true), 'the filter finds them too: ' .. seen[5].lines[1])
+    H.eq({ 'review staged' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), 'a label puts one in')
+    H.ok(H.state().prompt, 'and sends nothing')
+    answer(nil)
+    no_prompts()
+end)
+
+H.test('own prompts with no history yet still open the picker', function()
+    no_prompts()
+    -- A terminal never sent to: w, in a fresh buffer.
+    foyer.setup({ commands = { w = H.quiet }, prompts = { w = { 'hello there' } } })
+    H.reset(file)
+    H.press(function() foyer.terminal_command({ key = 'w' }) end)
+    vim.cmd('stopinsert')
+    answers({ 'a' })
+    H.feed('<C-f>')
+    H.eq({ 'hello there' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), 'picked from the list')
+    answer(nil)
+    no_prompts()
+end)
+
+H.test('prompts that make no sense are said so', function()
+    no_prompts()
+    local config = require('foyer.config').options
+    local notify, said = vim.notify, {}
+    vim.notify = function(msg) table.insert(said, msg) end
+    foyer.setup({ prompts = { 'no key' } })
+    foyer.setup({ prompts = { q = 'not a list' } })
+    foyer.setup({ prompts = { q = { 'fine', 5 } } })
+    foyer.setup({ prompts = { q = { '  ' } } })
+    foyer.setup({ prompts = { zz = { 'for nothing' } } })
+    vim.notify = notify
+    H.ok(said[1] and said[1]:find('by `commands` key', 1, true), said[1])
+    for k = 2, 4 do H.ok(said[k] and said[k]:find('prompts.q must be', 1, true), tostring(said[k])) end
+    H.ok(said[5] and said[5]:find('prompts.zz: no terminal', 1, true), tostring(said[5]))
+    H.eq(nil, config.prompts.q, 'none of q\'s taken')
+    no_prompts()
+end)
+
 -- Open the picker from a draft of {lines}, the cursor at the end of it.
 local function pick_at_end(win_type, lines)
     H.reset(file)

@@ -37,6 +37,9 @@ local config = {
     -- that is no label opens (nil: Telescope's oldfiles, or vim.ui.select).
     jump = { characters = 'asdfgqwertzxcvb', backdrop = 60, fallback = nil },
     keys = vim.deepcopy(default_keys),
+    -- Prompts of the user's own, by `commands` key, listed first in that
+    -- terminal's <C-f> picker, in the order given.
+    prompts = {},
 }
 
 -- Directory markers locating the project root that scopes terminals.
@@ -102,7 +105,8 @@ end
 local function setup(opts)
     opts = vim.deepcopy(opts or {})
     local user_keys = opts.keys or {}
-    opts.keys = nil
+    local user_prompts = opts.prompts
+    opts.keys, opts.prompts = nil, nil
 
     -- Merged into the table itself rather than replacing it, so whatever holds
     -- a reference to `config` sees what the user set, whenever it looked.
@@ -132,6 +136,30 @@ local function setup(opts)
                         :format(group, action))
                 else
                     config.keys[group][action] = spec
+                end
+            end
+        end
+    end
+
+    -- A terminal's at a time, for the same reason: a list given replaces the
+    -- one before rather than being merged into it entry by entry.
+    if user_prompts ~= nil then
+        if type(user_prompts) ~= 'table' or vim.islist(user_prompts) and #user_prompts > 0 then
+            warn('prompts must be a table of lists of prompts, by `commands` key')
+        else
+            for key, list in pairs(user_prompts) do
+                local ok = type(list) == 'table' and vim.islist(list)
+                for _, text in ipairs(ok and list or {}) do
+                    if type(text) ~= 'string' or not text:find('%S') then ok = false end
+                end
+                if not ok then
+                    warn(('prompts.%s must be a list of prompts, each a string with something in it')
+                        :format(tostring(key)))
+                else
+                    if config.commands[key] == nil then
+                        warn(('prompts.%s: no terminal in `commands` has that key'):format(tostring(key)))
+                    end
+                    config.prompts[key] = list
                 end
             end
         end

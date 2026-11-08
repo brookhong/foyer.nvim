@@ -126,6 +126,16 @@ keys ~
         }
 <
 
+prompts ~
+    Prompts of your own, by `commands` key: a list of strings, each listed
+    first in that terminal's <C-f> picker, in the order given, see
+    |foyer-history|. A list given replaces the one before. Defaults to none.
+    >lua
+        prompts = {
+            a = { 'review the staged changes', 'explain this error' },
+        }
+<
+
 jump ~
     For |foyer.jump()|: `characters`, the keys its hint labels are made of
     (default `'asdfgqwertzxcvb'`), which also label the prompts
@@ -428,6 +438,12 @@ cursor past it; the label with Shift replaces the whole draft with it. Nothing
 is sent until you send it. The list is not filtered by the draft, so the draft
 never changes which prompt is behind which label. The key is
 `keys.prompt.history_pick`, see |foyer-setup|.
+
+Prompts of your own, set in `prompts` under the terminal's `commands` key,
+come first, in the order given, so each keeps its label however history
+goes: the first is always the first label. They wear a `★` where history has
+its count, are left out of the history below them, and are filtered with the
+rest.
 
 `/` in the list filters it: what you type narrows it as you go to the
 prompts holding every word of it, in any order, ignoring the case of A to Z

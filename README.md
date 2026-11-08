@@ -104,6 +104,12 @@ require('foyer').setup({
     -- true.
     mention = true,
 
+    -- Prompts of your own, by `commands` key, listed first in that
+    -- terminal's <C-f> picker, in this order. Defaults to none.
+    prompts = {
+        a = { 'review the staged changes', 'explain this error' },
+    },
+
     -- The keys foyer maps in its own buffers, by action; see "Mappings inside
     -- the plugin's windows" for what each does. Only the actions you name
     -- change. An action takes a key or a list of keys, put in the modes it
@@ -371,6 +377,13 @@ insert mode, so you can build on what you have written; type it with Shift and
 it replaces the whole draft. Either way nothing is sent until you send it. The
 list is not filtered by what you have typed, so the draft never changes which
 prompt is behind which label.
+
+Prompts of your own, set in `prompts` under the terminal's `commands` key, come
+first, in the order you wrote them, so each keeps its label however your
+history goes: the first always has the first label. They wear a `★` where
+history has its count, are left out of the history below them, and are
+filtered with the rest. Each terminal has its own: a shell and an agent rarely
+want the same.
 
 To find one further down, press `/` in the list and type: it narrows as you
 go to the prompts holding every word you typed, in any order, ignoring the
