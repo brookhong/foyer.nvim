@@ -1,5 +1,5 @@
 -- The windows foyer shows its prompts and terminals in: opening one (a float,
--- a sidebar kept per terminal, or the user's own window borrowed), naming it,
+-- a split kept per terminal, or the user's own window borrowed), naming it,
 -- and putting it away again without leaving anything of foyer's behind.
 local M = {}
 
@@ -15,7 +15,7 @@ local function clear_foyer_matches(win_id)
 end
 
 -- Put away a window this plugin opened, then drop {bufnr} if given. A float
--- or a sidebar is the plugin's own and simply closes; a window the plugin only
+-- or a split is the plugin's own and simply closes; a window the plugin only
 -- borrowed -- the user's, with a prompt put in it -- is handed back the buffer
 -- it was showing, since closing it would take the user's layout with it.
 local function dismiss(win_id, bufnr)
@@ -81,10 +81,9 @@ end
 
 local active_cmd_wins = {}
 
--- What kind of window a {type} opens: anything but a sidebar or the current
--- window is a float.
+-- What kind of window a {type} opens: 'split', 'current', or 'float'.
 local function window_kind(type)
-    if type == 'sidebar' or type == 'current' then return type end
+    if type == 'split' or type == 'current' then return type end
     return 'float'
 end
 
@@ -157,7 +156,7 @@ end
 -- command buffer, so a caller can re-point that draft at what this send
 -- carries instead of silently handing back the state of the send before it.
 --
--- {opts.term} is the terminal the window is for. A sidebar or a float of
+-- {opts.term} is the terminal the window is for. A split or a float of
 -- foyer's already open in this tab page is reused rather than stacked: for the
 -- same terminal, a prompt in it is handed back as it is; for another one, the
 -- old prompt is parked, draft and all, and the window given to the new
@@ -240,7 +239,7 @@ local function create_window(type, title, on_ready, opts)
         vim.api.nvim_win_set_buf(win_id, bufnr)
         -- The old prompt is parked or gone; <C-o> here is the new one's.
         vim.w[win_id].foyer_prompt = nil
-    elseif type == "sidebar" then
+    elseif type == "split" then
         win_id = vim.api.nvim_open_win(bufnr, true, {
             split = 'right',
         })
@@ -284,7 +283,7 @@ local function create_window(type, title, on_ready, opts)
         on_ready(bufnr, win_id)
     end
 
-    -- Only a sidebar and a float for a terminal are tracked: they are the ones
+    -- Only a split and a float for a terminal are tracked: they are the ones
     -- that get reused. edit_selection()'s float is for no terminal, and left
     -- alone.
     if not reuse and tracked then
@@ -304,7 +303,7 @@ local function create_window(type, title, on_ready, opts)
     end
 end
 
--- The kind of window -- 'sidebar' or 'float' -- {win_id} is, if it is the one
+-- The kind of window -- 'split' or 'float' -- {win_id} is, if it is the one
 -- foyer keeps of that kind, in which a terminal launched is handed the window.
 local function tracked_kind(win_id)
     for kind, win in pairs(active_cmd_wins) do

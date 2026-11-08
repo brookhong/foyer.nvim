@@ -23,16 +23,9 @@ local function sent(key, win_type)
     return H.state().buf
 end
 
--- Back to a window of the user's alone -- not a sidebar kept by :only --
--- showing the file.
-local function reset()
-    H.reset(file)
-    vim.cmd('split | only')
-end
-
 -- Every terminal gone, so a test starts with none running.
 local function fresh()
-    reset()
+    H.reset(file)
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
         if vim.b[buf].foyer_terminal then vim.api.nvim_buf_delete(buf, { force = true }) end
     end
@@ -44,7 +37,7 @@ local function press_switch()
     H.wait(100)
 end
 
-for _, win_type in ipairs({ 'float', 'sidebar' }) do
+for _, win_type in ipairs({ 'float', 'split' }) do
     H.test(win_type .. ': <C-t> in a terminal shows the other one, in the same window', function()
         fresh()
         local q = sent('q', win_type)
@@ -82,24 +75,40 @@ end
 
 H.test('with three, <C-t> goes to the one used last before this one', function()
     fresh()
-    local q = sent('q', 'sidebar')
-    local w = sent('w', 'sidebar')
-    local e = sent('e', 'sidebar')
+    local q = sent('q', 'split')
+    local w = sent('w', 'split')
+    local e = sent('e', 'split')
     press_switch()
     H.eq(w, H.state().buf, 'w, not q')
     press_switch()
     H.eq(e, H.state().buf, 'back to e, not on to q')
 end)
 
+H.test('<C-t> stays in the window, whatever the other terminal\'s win_type', function()
+    -- e opens in a float of its own accord; <C-t> from a split must not.
+    foyer.setup({ commands = { e = vim.tbl_extend('force', H.quiet, { win_type = 'float' }) } })
+    fresh()
+    local e = sent('e')
+    H.ok(H.state().float, 'e in its float')
+    sent('q')
+    local split = H.state().win
+    H.ok(not H.state().float, 'q in a split')
+    vim.api.nvim_set_current_win(split)
+    press_switch()
+    H.eq(split, H.state().win, 'still the split')
+    H.eq(e, H.state().buf, 'showing e there')
+    foyer.setup({ commands = { e = H.quiet } })
+end)
+
 H.test('global terminals are left out', function()
     fresh()
-    local q = sent('q', 'sidebar')
-    local sidebar = H.state().win
+    local q = sent('q', 'split')
+    local split = H.state().win
     vim.cmd('wincmd p')
     launch('g')
     H.send('to g')
     vim.cmd('stopinsert')
-    vim.api.nvim_set_current_win(sidebar)
+    vim.api.nvim_set_current_win(split)
     H.eq(q, H.state().buf, 'in q\'s terminal')
     press_switch()
     H.eq(q, H.state().buf, 'nowhere to go: still q\'s terminal')
@@ -107,9 +116,9 @@ end)
 
 H.test('in a window of the user\'s, <C-t> shows the other terminal there', function()
     fresh()
-    local q = sent('q', 'sidebar')
-    local w = sent('w', 'sidebar')
-    reset()
+    local q = sent('q', 'split')
+    local w = sent('w', 'split')
+    H.reset(file)
     vim.cmd('buffer ' .. q)
     local win = H.state().win
     press_switch()

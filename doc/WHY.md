@@ -59,15 +59,13 @@ Then map one key to reach them:
 
 ```lua
 -- <leader>a, then an agent's letter
-vim.keymap.set({ 'n', 'v' }, '<leader>a', function()
-    require('foyer').terminal_command({ win_type = 'sidebar' })
-end)
+vim.keymap.set({ 'n', 'v' }, '<leader>a', require('foyer').terminal_command)
 ```
 
-Now press `<leader>a` and a letter: `c` for Claude Code, `o` for opencode.
-Pick a different letter and you're asking a different agent;
-none of them has to be running yet, because foyer starts the one you picked on
-first use. A real buffer opens: a float, or a sidebar if you prefer. Write as
+Now press `<leader>a` and a letter: `c` for Claude Code, `o` for opencode. Pick
+a different letter and you're asking a different agent; none of them has to be
+running yet, because foyer starts the one you picked on first use. A real
+buffer opens, in a split beside your code, or a float if you prefer. Write as
 much as you like, across as many lines as you like, with every motion, text
 object, macro and plugin you already have. Press `<C-s>` in insert mode, or
 `<CR>` in normal mode, and the whole thing reaches that agent as **one
@@ -296,7 +294,7 @@ Being clear about this saves you an afternoon:
         },
     },
     keys = {
-        { '<leader>a', function() require('foyer').terminal_command({ win_type = 'sidebar' }) end,
+        { '<leader>a', function() require('foyer').terminal_command() end,
           mode = { 'n', 'v' }, desc = 'foyer: prompt a terminal' },
     },
 }

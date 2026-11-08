@@ -15,12 +15,13 @@ until you are done with it here.
 - **Project-scoped named terminals** — one keypress picks a terminal by its
   first character (`z` → zsh, `g` → gdb, `a` → your coding agent). Terminals are
   keyed by project root, spawned on demand, and reused; a `scope = 'global'`
-  one is kept for the whole session instead.
-- **Per-terminal command history** — persisted across sessions in
-  `stdpath('cache')/foyer.json`, scoped per terminal name. `<Up>`/`<Down>`
-  walk it, and typing first filters the history by substring, with the match
-  highlighted. `<C-f>` lists your most used prompts, ranked by frequency and
-  recency, and `/` there searches all of them by words.
+  one is kept for the whole session instead. `<C-t>` in one goes back to the
+  one you used before it.
+- **Per-terminal command history** — persisted across sessions, scoped per
+  terminal. `<Up>`/`<Down>` walk it, filtered by what you have typed.
+  `<C-f>` lists your most used prompts, ranked by frequency and recency, after
+  prompts of your own pinned on top, and `/` there searches all of them by
+  words.
 - **Multi-line prompts** — write a paragraph across many lines, send it as one
   payload. Made for agent CLIs, not just shell one-liners.
 - **Editor context in the prompt** — start from a visual selection and it goes
@@ -30,7 +31,10 @@ until you are done with it here.
 - **Editable visual selection** — `edit_selection()` opens any visual selection
   in a floating scratch buffer and writes the result back over the selection.
 - **Jump anywhere** — `jump()` labels every tab, window, buffer and recent file;
-  type a label to go there. Windows squeezed flat are left out.
+  type a label to go there.
+- **Every key configurable** — each key foyer maps in its prompts and
+  terminals is set by action, and nothing is mapped globally or in terminal
+  mode.
 
 ## Requirements
 
@@ -46,7 +50,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
     opts = {
         commands = {
             z = 'zsh',
-            g = 'gdb',
+            a = { 'opencode', '-c' },
         },
     },
 }
@@ -56,120 +60,32 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ## Configuration
 
+A taste; every option, with its default, is in `:help foyer-setup`.
+
 ```lua
 require('foyer').setup({
-    -- Terminals, keyed by the single character that selects them.
+    -- Terminals, keyed by the single character that selects them: a command,
+    -- { command, arguments }, or a function of the project root returning
+    -- either. Its prompt opens in a split beside your code, or a float with
+    -- win_type = 'float'; scope = 'global' keeps one for the whole session.
     commands = {
-        -- string: the command to run
-        z = 'zsh',
-        -- table: { command, arguments } -- the first element is also the
-        -- display name shown in the window title
+        z = { 'zsh', win_type = 'float' },
         a = { 'opencode', '-c' },
-        -- function(project_root, launch_info) -> string | table
-        -- resolved every time, so the terminal can depend on the project
-        e = function(project_root, launch_info)
-            if project_root:find('kernel', 1, true) then
-                return { 'bash', '--norc' }
-            end
-            return 'zsh'
-        end,
-        -- a table entry may also name cwd and scope: 'global' keeps one
-        -- terminal for the whole session instead of one per project root,
-        -- and its prompt takes the current window instead of a float or
-        -- sidebar
-        F = { 'opencode', '-c --agent counselor',
-              cwd = vim.env.HOME, scope = 'global' },
+        F = { 'opencode', '-c --agent counselor', cwd = vim.env.HOME, scope = 'global' },
     },
 
-    -- Markers used to find the project root that scopes terminals.
-    -- Defaults to vim.g.root_markers, then { '.git' }.
-    root_markers = { '.git', '.clangd' },
-
-    -- Wrap a multi-line send in bracketed paste. Turn it off for a terminal
-    -- program that does not understand the escapes. Defaults to true.
-    bracketed_paste = true,
-
-    -- Milliseconds terminal_command() waits for a terminal key before showing
-    -- the picker, so a mapping typed straight through never flashes it.
-    -- Defaults to 500.
-    picker_delay = 500,
-
-    -- A selection is sent with its lines, up to this many; a longer one is
-    -- sent as its location alone. 0 never sends the lines. Defaults to 40.
-    -- A buffer not saved yet has no location, so a longer one is copied to a
-    -- temporary file, which the label names.
-    selection_max_lines = 40,
-
-    -- `@` in a terminal's prompt lists the open files to mention. Defaults to
-    -- true.
-    mention = true,
-
-    -- Prompts of your own, by `commands` key, listed first in that
-    -- terminal's <C-f> picker, in this order. Defaults to none.
+    -- Prompts of your own, pinned on top of a terminal's <C-f> list.
     prompts = {
         a = { 'review the staged changes', 'explain this error' },
     },
 
-    -- The keys foyer maps in its own buffers, by action; see "Mappings inside
-    -- the plugin's windows" for what each does. Only the actions you name
-    -- change. An action takes a key or a list of keys, put in the modes it
-    -- has by default; a table by mode, naming the modes itself; or false, for
-    -- no key. A list replaces the default list rather than adding to it.
-    -- Read as each prompt or terminal is set up, so calling setup() again
-    -- leaves the ones already open as they were. Shown here with their
-    -- defaults.
+    -- Any key foyer maps, by action; false for none.
     keys = {
-        prompt = {
-            send = { n = '<CR>', i = '<C-s>' },
-            close = { n = '<C-c>' },
-            close_if_empty = { n = '<Esc>' },
-            terminal = { n = '<C-o>' },
-            history_prev = { n = { '<Up>', '<C-p>' }, i = '<Up>' },
-            history_next = { n = { '<Down>', '<C-n>' }, i = '<Down>' },
-            history_pick = { n = '<C-f>', i = '<C-f>' },
-        },
-        terminal = {
-            switch = { n = '<C-t>' },
-            prompt = { n = '<C-o>' },
-            close = { n = { '<CR>', '<C-c>', '<Esc>' } },
-            cd_root = { n = '<C-r>' },
-        },
-    },
-
-    -- jump(): the keys its hint labels are made of, the 'winblend' of the
-    -- backdrop behind it (false for none), and what a key that is no label
-    -- opens -- by default Telescope's oldfiles if installed, else vim.ui.select.
-    jump = { characters = 'asdfgqwertzxcvb', backdrop = 60, fallback = nil },
-})
-```
-
-### `launch_info`
-
-Captured for you: `terminal_command()` and `send_terminal_command()` read the
-current file and line, plus `start_line`/`end_line`
-when you are in visual mode, before anything in the call can change them. The
-table reaches the `commands` resolver untouched, so a function there can pick
-the terminal by it, and a key of your own reaches it too:
-
-```lua
-foyer.terminal_command({
-    launch_info = {
-        project_root = '/repo',
-        current_file = 'src/main.c',
-        ticket = 'JIRA-123',
+        prompt = { send = { n = '<CR>', i = '<C-s>' } },
+        terminal = { cd_root = false },
     },
 })
 ```
-
-`current_file` is relative to `project_root`, which is captured alongside it —
-`src/main.c`, the name the project uses, not a path that only means something on
-your machine. The two always travel together: when there is no project root to
-name the file against, the `project_root` key is absent and `current_file` is
-absolute instead.
-
-Passing one yourself opts out of the capture entirely. In a buffer with no file
-— a terminal, a scratch buffer, one not saved yet — the captured table is empty.
-A selection in a buffer not saved yet still goes with the prompt, see below.
 
 ## Suggested keymaps
 
@@ -178,346 +94,37 @@ The plugin defines **no global keymaps**; wire up only what you want.
 ```lua
 local foyer = require('foyer')
 
--- Pick a terminal by its first character and compose a command for it.
--- From visual mode the prompt carries the selected lines, labelled with their
--- file and range, appended as you send.
-vim.keymap.set({ 'n', 'v' }, '<leader>a', function()
-    foyer.terminal_command({ win_type = 'sidebar' })
-end, { desc = 'Send command to a picked terminal' })
+-- Pick a terminal by its key and write a prompt for it. From visual mode the
+-- prompt carries the selected lines, labelled with their file and range.
+vim.keymap.set({ 'n', 'v' }, '<leader>a', foyer.terminal_command,
+    { desc = 'Send command to a picked terminal' })
 
 -- Edit the current visual selection in a floating buffer.
-vim.keymap.set('v', 'E', function()
-    foyer.edit_selection()
-end, { desc = 'Edit selection in floating window' })
+vim.keymap.set('v', 'E', foyer.edit_selection, { desc = 'Edit selection' })
 
--- Toggle any window, a prompt or a terminal of foyer's among them, between
--- full screen and the size it had.
+-- Any window, foyer's among them, to full screen and back.
 vim.keymap.set('n', '<leader>z', foyer.toggle_full_size, { desc = 'Toggle full-size window' })
+
+-- Any tab, window, buffer or recent file, by its label.
+vim.keymap.set('n', '<leader>b', foyer.jump, { desc = 'Jump anywhere' })
 ```
 
-## API
+## In use
 
-| Function | Description |
-| --- | --- |
-| `setup(opts)` | Merge `opts` into the configuration. |
-| `terminal_command(opts)` | Pick a terminal by its `commands` key, spawn it if needed, then open a command buffer for it. A popup lists the keys if none is typed within `picker_delay`; `<Esc>` cancels. |
-| `send_terminal_command(term_key, opts)` | Drive a specific terminal directly. `opts.command` sends non-interactively; omit it to open the command buffer. `opts.auto_start = true` spawns the terminal if it is missing. |
-| `switch_terminal()` | Switch to this project's running terminal used last before the current one, see below. Global terminals are left out. |
-| `edit_selection()` | Open the current visual selection in a floating buffer and write the result back. Must be called from visual mode. |
-| `toggle_full_size()` | Toggle the current window between full screen and the size it had before: height for a float; width and height for a split, beside its neighbours, above or below them, or both. Putting it back restores every split in the tab as it was, and leaves floats alone. A neighbouring split keeps its minimum size, so a split may stop a few columns or lines short. |
-| `jump()` | Jump to any tab, window, buffer or recent file by typing the hint label drawn over it; see below. |
-| `tab_switch()` | Move to the next window worth looking at: `CTRL-W w` order, wrapping around, skipping floats and windows a full-screen neighbour has squeezed to `'winminwidth'`/`'winminheight'`. With nothing left to step into, switches to the alternate buffer (`CTRL-^`) instead. A maximised diff pane restores the squeezed pane and steps into it. |
-| `is_idle(buf, threshold_ms)` | Whether `buf` has produced no output for `threshold_ms` (default 1000). |
+Press `<leader>a`, then the terminal's key: a prompt opens in a split beside
+your code, or a float for a terminal set up with one. Write in it as in any
+buffer and press `<CR>` to send; the terminal takes the window, and `<C-o>`
+goes back and forth between the two. `<Up>` recalls what you sent before,
+`<C-f>` picks from your most used prompts, and `@` in insert mode mentions a
+file. Start from a visual selection and it goes along, labelled with its file
+and lines.
 
-### `opts` for `terminal_command` / `send_terminal_command`
+## Documentation
 
-| Key | Meaning |
-| --- | --- |
-| `command` | Send this text instead of opening a command buffer. |
-| `interactive` | Force the command buffer open even when `command` is set; `command` then seeds the buffer. |
-| `selection` | Text appended to the prompt as it is sent. Set for you when the send starts in visual mode, see below. |
-| `win_type` | `'sidebar'` for a right-hand split, otherwise a floating window. Ignored for a `scope = 'global'` terminal, whose prompt takes the current window. |
-| `auto_start` | Spawn the terminal if it does not exist yet. The send waits for it to start, see below. |
-| `launch_info` | Override the captured context. Passed to the `commands` resolver. |
-
-`terminal_command` also takes `key`, the `commands` key to drive instead of
-asking for one, and `switch`, which shows the terminal in the current window
-rather than opening a prompt and returns its buffer.
-
-A `scope = 'global'` terminal is a conversation of its own rather than a helper
-to the code beside it, so its prompt does not open in a float or a sidebar: it
-takes the window you are in, and the terminal takes it in turn once you send.
-`<CR>`, `<C-c>` or `<Esc>` there hand the window back to the buffer it was
-showing, so your layout is never touched:
-
-```lua
-vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
-    foyer.terminal_command({ key = 'F' })
-end, { desc = 'opencode terminal' })
-```
-
-Starting from visual mode attaches the selection. The command buffer opens empty
-and in insert mode, with the selection's place shown in its title —
-`src/main.c:30-36` — and the selection joins below the prompt, after a blank
-line, as it is sent:
-
-````
-what does this do?
-
-Selected in my editor: /repo/src/main.c, lines 30-36
-```c
-…the selected lines, as the buffer has them…
-```
-````
-
-The lines go with it because a bare `src/main.c:30` reads to an agent as a
-location, and it reads the lines around one and guesses which was meant; and
-the numbers are the buffer's, while the agent reads the file on disk, which
-unsaved edits can put out of step — the label says so when they have. The path
-is absolute, so it resolves wherever the agent was started. A selection longer
-than `selection_max_lines` is sent as the label alone.
-
-A buffer you have not saved yet has no file to point at, so its lines are all
-the agent gets: `Selected in my editor: lines 3-8 of a buffer with no file`,
-then the lines, and `[No Name]:3-8` in the title. Past `selection_max_lines` a
-label alone would point the agent at nothing, so the lines are copied to a
-temporary file and the label names it — `…, copied whole to /tmp/…/3.lua` —
-for the agent to read rather than a long paste for its input box to swallow.
-The file is yours alone and goes when Neovim exits. A terminal or scratch buffer
-sends no selection.
-
-None of it sits in the command buffer, so the line stays yours to edit and to
-walk history with, and history remembers the prompt without a selection that
-will not be true next time. Type nothing and nothing is sent; a selection alone
-asks the agent nothing. A `selection` you pass yourself is appended as given.
-
-A sidebar outlives the send that opened it, so sending again aims at the window
-already there rather than splitting another one: a draft still in it is yours
-and stays — only an empty one takes a seeded `command` — with the new selection
-replacing whatever the title advertised before, and the terminal left in there
-gives the window back to its prompt: empty after a send, still holding the
-draft if you only looked at the terminal with `<C-o>`. A floating window
-already open is reused the same way rather than stacked. Launching a different
-terminal hands the sidebar or float to the new terminal's prompt, in the same
-window; the previous terminal's prompt is set aside with its draft, and comes
-back as you left it when that terminal is launched there again.
-
-A terminal still producing output keeps the window instead of giving it to a
-prompt (see `is_idle`); there is no prompt for a selection to ride on then, so
-it is dropped and said so with `vim.notify`.
-
-### `jump()`
-
-A picker for getting anywhere in two keystrokes, after the
-[tab switcher](https://github.com/brookhong/Surfingkeys?tab=readme-ov-file#switch-tabs)
-of Surfingkeys. It lays out every tab page with its windows placed as they are
-on screen, then the listed buffers not shown in any window, by when you last
-used them, then recently opened files, each name just long enough to tell it
-from the others. Each one has a hint label over it: type it to go there — to a
-window, or to a buffer or file opened in this one. With Shift a label does the
-other thing: a window's buffer comes into this window, and a buffer or file
-opens in a new tab. An empty window a buffer is brought into leaves no
-`[No Name]` behind. `<BS>` starts the label again, `<Esc>` cancels, and any
-other key hands over to `jump.fallback`, for an old file the picker had no room
-for. A window squeezed flat by a full-screen neighbour is left out, like
-`tab_switch()` does; what it shows is still listed among the buffers. The
-terminals foyer started are not: `terminal_command()` reaches this project's and
-the global ones, in a window with the prompt a `<C-o>` away, and another
-project's is reached from that project. One shown in a window is still listed
-under Windows, and a terminal you opened yourself is listed as any buffer.
-
-It opens in a bordered window titled *Jump / Foyer*, with the keys along its
-bottom edge, and fits it whatever it holds. Tabs too many to sit side by side
-carry on in bands below, each under a line of `─`. A name that needs many
-directories to tell it apart, as copies of a project on two drives do, keeps
-only the one that does and the last two: `C:/…/module/init.lua` and
-`D:/…/module/init.lua`. A name still too long for the window loses its start
-to `…`, keeping the file name.
-
-```lua
-vim.keymap.set('n', '<leader>b', require('foyer').jump, { desc = 'Jump anywhere' })
-```
-
-## Giving an agent your editor context
-
-Everything foyer tells an agent about your editor is in the prompt itself: a
-visual selection rides along below what you wrote, labelled with its file and
-lines (see `selection` above), and `@` puts in a file at a line, the one you
-opened the prompt from first, at your cursor (see `@` mentions below). "Fix
-this" plus `@<CR>` is `fix this @src/main.c:88`, which every agent understands
-as it is.
-
-## Mappings inside the plugin's windows
-
-These are buffer-local, and each is set by the `keys` action named beside it,
-see [Configuration](#configuration): `keys.prompt.send = { n = '<Leader>s' }`
-moves sending to `<Leader>s` in normal mode and maps nothing in insert mode,
-`keys.terminal.cd_root = false` leaves `<C-r>` alone. `edit_selection()`'s
-window takes `send`, `close` and `close_if_empty` from `keys.prompt`; the `@`
-menu's keys are not configurable.
-
-### Command buffer
-
-A buffer with something to say already — a seeded `command`, a prompt that is
-going to carry a `selection` — starts in insert mode at the end of its text. One
-opened with nothing to say starts in normal mode, where `<Up>` walks the
-history.
-
-| Key | Mode | `keys.prompt` | Action |
-| --- | --- | --- | --- |
-| `<CR>` | n | `send` | Send the buffer to the terminal |
-| `<C-s>` | i | `send` | Send the buffer to the terminal |
-| `<C-p>` / `<Up>` | n | `history_prev` | Previous history entry |
-| `<C-n>` / `<Down>` | n | `history_next` | Next history entry |
-| `<Up>` / `<Down>` | i | `history_prev` / `history_next` | Previous / next history entry from the first / last line; elsewhere in a draft of many lines, or with a menu open, the keys' own |
-| `<C-f>` | n, i | `history_pick` | Label the most used prompts: a label inserts one at the cursor, Shift+label replaces the draft with it; `/` filters them; with a menu open, the menu's |
-| `@` | i | | Mention an open file, see below |
-| `<Esc>` | n | `close_if_empty` | Close the window if the buffer is empty |
-| `<C-c>` | n | `close` | Close the window, discarding the draft |
-| `<C-o>` | n | `terminal` | Show the prompt's terminal in its window; `<C-o>` there comes back |
-
-History is filtered by what you have typed: with a draft in the buffer, only the
-entries containing it are walked, and the match is highlighted.
-
-In insert mode `<C-p>` and `<C-n>` are completion's, as anywhere else, and
-`<Up>`/`<Down>` walk history as a shell's do: in a draft of many lines they
-move the cursor until it is on the first line, or the last, and only from
-there recall an entry. A walk under way goes on wherever the cursor is, so an
-entry of many lines is stepped over in one press.
-
-`<Up>` walks history by recency. `<C-f>` lists it by how *often* and how
-recently each prompt was sent — a prompt's uses count for half as much for
-every week since its last — so "review the staged changes" stays on top however
-many one-off prompts came after it. They pop up just below the cursor, as a
-completion menu does, or above it if there is no room below, wrapped to the
-prompt's width, up to four rows each. Each has a hint label, as in `jump()`,
-made of `jump.characters`, one prompt per character. Type a label and the
-prompt goes in at the cursor, as `p` puts it in normal mode and as typed in
-insert mode, so you can build on what you have written; type it with Shift and
-it replaces the whole draft. Either way nothing is sent until you send it. The
-list is not filtered by what you have typed, so the draft never changes which
-prompt is behind which label.
-
-Prompts of your own, set in `prompts` under the terminal's `commands` key, come
-first, in the order you wrote them, so each keeps its label however your
-history goes: the first always has the first label. They wear a `★` where
-history has its count, are left out of the history below them, and are
-filtered with the rest. Each terminal has its own: a shell and an agent rarely
-want the same.
-
-To find one further down, press `/` in the list and type: it narrows as you
-go to the prompts holding every word you typed, in any order, ignoring the
-case of A to Z — `stage review` finds "review the staged changes" — over your
-whole history rather than the few prompts on screen, still the most worth
-recalling first, with the words highlighted. What you type shows in the list's
-top border, and the list keeps the size and place it opened with, so nothing
-moves under your eye as it narrows. `<BS>` takes a character back, `<C-w>` a
-word, `<C-u>` the lot. `<CR>` goes back to picking, the labels given out
-afresh to what is left; `<Esc>` clears the filter, and once there is none
-closes the list.
-
-Once a prompt is sent, the terminal takes its window, and `<C-o>` from there
-comes back to the prompt emptied, with the selection it carried gone: a
-follow-up written there goes alone. What was sent is in history, one `<Up>`
-away. `<C-o>` works before a send too: from the prompt it shows the terminal,
-to read what it has said, and `<C-o>` there brings back your draft as you left
-it. It only ever toggles between the two, never to the file you opened the
-prompt from.
-
-#### `@` mentions
-
-In the prompt for one of your `commands`, `@` at the start of a word lists the
-open files: the one you opened the prompt from first, at your cursor line, then
-the rest by when you last used them, each at its last change, then the files
-you used recently (`v:oldfiles`) in the same way. The menu shows ten at a time;
-typing after the `@` searches all of them by name, so a file further down is
-found as you type. While it is open:
-
-| Key | Puts in |
-| --- | --- |
-| `<CR>` | `@src/parser.c:120` — the path as the agent resolves it: from the directory it was started in, or absolute for a `scope = 'global'` one |
-| `<C-l>` | The selection block a visual selection sends — label, then the lines as your buffer has them. The file's last visual selection if it holds that line, else the line alone |
-| `<Esc>` | Nothing: the `@` stays as typed |
-
-An `@` inside a word (`user@host`) is just an `@`, and so is one with no open
-file to offer. A recent file is read only when it comes into the menu, without
-its autocommands — no filetype plugin or language server starts for it — and
-let go again when the menu closes. A block put in with `<C-l>` is left out of
-history, which keeps the words around it.
-
-`edit_selection()`'s window is text you are editing rather than a prompt: it
-keeps `<CR>`, `<C-s>`, `<Esc>` and `<C-c>`, has no history, and always starts
-in normal mode. With no terminal behind it, `<C-o>` there does nothing.
-
-### Terminal buffer
-
-`<C-t>` is on every terminal this plugin opens. The rest are attached when a
-terminal is shown in one of this plugin's own windows, which `switch` does not
-do — it hands the terminal your window, so a terminal opened that way has only
-`<C-t>`. None is mapped in terminal mode, where every key is the program's.
-
-| Key | Mode | `keys.terminal` | Action |
-| --- | --- | --- | --- |
-| `<C-t>` | n | `switch` | Switch to this project's terminal used last before this one, see below |
-| `<C-r>` | n | `cd_root` | `cd` the terminal to the project root |
-| `<C-o>` | n | `prompt` | Back to the prompt the terminal was shown for in this window; in a window of your own, the key's own meaning — Vim's jump back |
-| `<CR>` / `<C-c>` / `<Esc>` | n | `close` | Close the terminal window |
-
-Yanking in a terminal buffer strips trailing whitespace from every line — a
-terminal pads its lines to the window width, and that padding is never what you
-wanted to copy.
-
-`<C-t>` goes back to the terminal you used last before this one, among this
-project's running ones, as `CTRL-^` does for buffers: with two it toggles, and
-with more the third is a picker away. A terminal counts as used when it is
-launched, shown, or its prompt is entered. Global terminals are left out, and
-none is started. The other terminal is shown in the same window; in the
-sidebar or float foyer keeps, its prompt is a `<C-o>` away with the draft you
-left in it, and the terminal you left keeps its own. In a window of your own,
-the other terminal is just shown there. `<C-t>` otherwise goes back up the tag
-stack, which a terminal is never on, so the key is free there.
-
-A terminal follows its output in every window showing it, once foyer has shown
-it or sent it something: the cursor goes to the last line, so what comes after
-stays in view without entering terminal mode. Move the cursor up to read back,
-and the window stays put until the next send.
-
-## Highlights
-
-| Group | Default | Used for |
-| --- | --- | --- |
-| `FoyerMatch` | `bg=#333333 fg=#ff7700 bold` | What the draft matches as `<Up>` walks history, and the words a `/` filter matches in the `<C-f>` list |
-| `FoyerBackdrop` | `bg=#000000` | The veil dimming the editor behind the terminal picker (needs `termguicolors`) |
-
-Defined with `default = true`, so override it with `vim.api.nvim_set_hl` or from
-your colorscheme.
-
-`jump()` has its own, with a palette for each `'background'`, given as colors
-rather than links so they stay distinct in any colorscheme:
-
-| Group | Dark | Light | Used for |
-| --- | --- | --- | --- |
-| `FoyerJumpTitle` | `#65737e` | `#8a8a8a` | section titles |
-| `FoyerJumpName` | `#6699cc` bold | `#005f87` bold | buffer, window and file names |
-| `FoyerJumpCurrent` | `#99c794` bold | `#008700` bold | the current buffer or window |
-| `FoyerJumpNoName` | `#f99157` italic | `#af5f00` italic | buffers without a file name |
-| `FoyerJumpTerminal` | `#c594c5` bold | `#875faf` bold | terminals foyer started |
-| `FoyerJumpLabel` | `#1b2b34` on `#fac863` bold | `#ffffff` on `#d75f00` bold | hint labels |
-| `FoyerJumpLabelTyped` | `#1b2b34` on `#65737e` | `#ffffff` on `#8a8a8a` | the part of a label already typed |
-| `FoyerJumpBackdrop` | bg `#000000` | bg `#000000` | dims the editor behind it (see `jump.backdrop`) |
-
-A colorscheme change clears highlight groups, so set yours from a `ColorScheme`
-autocmd or after `:colorscheme`.
-
-## Notes and limitations
-
-- A terminal foyer has just started gets nothing until it has: a program
-  starting up has not taken over its terminal yet, and taking it over commonly
-  throws away what was typed ahead. So a send to it — an `auto_start` command,
-  or a prompt written faster than the agent came up — is held, with a notice,
-  until the program has drawn its first screen and been quiet for half a
-  second, and then sent. One that draws nothing is taken as started after three
-  seconds; one that never settles is sent to after fifteen, with a warning.
-  Prompts open at once either way, so the writing does not wait.
-- Its first prompt is also typed without Enter, and the Enter goes only once the
-  text has shown on its screen. A program can come up on a question of its own
-  — whether to trust the workspace, a login, an update — and there the Enter
-  that ends a prompt would be the answer, given for you. So if the text has not
-  shown within two seconds, foyer sends nothing more and says so: the question
-  is yours to answer in the terminal, and the prompt is in history, one `<Up>`
-  away, to send again afterwards. While it waits, foyer keeps out of terminal
-  mode, so no key of yours reaches the question by accident.
-- A send containing a newline — a multi-line draft, or any prompt with a
-  `selection` under it — is wrapped in bracketed paste, so the
-  receiver inserts the newline instead of reading it as Enter and running the
-  first line alone. What the receiver then does with a multi-line input is its
-  own business: an agent takes it as one prompt, a shell lands it on one command
-  line and still runs each of its lines in turn. A terminal program that does
-  not understand bracketed paste will show the `[200~` escapes as text — turn
-  `bracketed_paste` off for it. Single-line sends are never wrapped.
-- `edit_selection()` goes through register `a`: the selection is yanked into it
-  on the way in, and the edited text on the way back out.
-- Timings and the register are hardcoded.
+The full reference — every option, the API, the keys in foyer's windows,
+highlights and limitations — is in Neovim: `:help foyer`, or
+[doc/foyer.txt](doc/foyer.txt). Why foyer works the way it does is in
+[doc/WHY.md](doc/WHY.md) ([中文](doc/WHY.zh-CN.md)).
 
 ## License
 

@@ -20,11 +20,12 @@ local function prompt(opts)
     H.press(function() foyer.terminal_command(vim.tbl_extend('force', { key = 'q' }, opts or {})) end)
 end
 
-H.test('the prompt opens in a float, titled with the terminal', function()
+H.test('the prompt opens in a split by default, titled with the terminal', function()
     H.reset(file)
     prompt()
     local s = H.state()
-    H.ok(s.prompt and s.float, 'a prompt in a float')
+    H.ok(s.prompt and not s.float, 'a prompt in a split')
+    H.eq(2, s.wins, 'beside the file')
     H.ok(s.title:find('sh · foyer.nvim', 1, true), 'title: ' .. s.title)
 end)
 
@@ -335,7 +336,7 @@ local function pick_at_end(win_type, lines)
     return at
 end
 
-for _, win_type in ipairs({ 'float', 'sidebar' }) do
+for _, win_type in ipairs({ 'float', 'split' }) do
     H.test(win_type .. ': the picker pops up just below the cursor', function()
         local at = pick_at_end(win_type, { 'first', 'review' })
         -- 0-based position of the border; screenpos() is 1-based.
@@ -351,7 +352,7 @@ end
 H.test('with no room below the cursor, the picker opens above it', function()
     local lines = {}
     for i = 1, vim.o.lines - 4 do lines[i] = 'line ' .. i end
-    local at = pick_at_end('sidebar', lines)
+    local at = pick_at_end('split', lines)
     H.eq(at.row - 1 - (shown_at.height + 2), shown_at.pos[1], 'its border ends on the row above the cursor')
 end)
 
@@ -450,18 +451,34 @@ H.test('a busy terminal shows itself; <C-o> reaches a working prompt', function(
     H.eq('hi\r', H.last_text(), '<CR> from there sends')
 end)
 
-H.test('a sidebar is reused rather than stacked', function()
+H.test('a terminal\'s own win_type places its prompt, unless the call names one', function()
+    foyer.setup({ commands = { s = vim.tbl_extend('force', H.quiet, { win_type = 'float' }) } })
     H.reset(file)
-    prompt({ win_type = 'sidebar' })
+    H.press(function() foyer.terminal_command({ key = 's' }) end)
+    H.ok(H.state().prompt and H.state().float, 'a prompt in a float')
+    vim.cmd('stopinsert')
+    H.reset(file)
+    H.press(function() foyer.terminal_command({ key = 's', win_type = 'split' }) end)
+    local s = H.state()
+    H.ok(s.prompt and not s.float, 'the call\'s split wins')
+    vim.cmd('stopinsert')
+    H.reset(file)
+    prompt()
+    H.ok(not H.state().float, 'a terminal with none: a split')
+end)
+
+H.test('a split is reused rather than stacked', function()
+    H.reset(file)
+    prompt({ win_type = 'split' })
     local first = H.state()
-    H.eq(2, first.wins, 'one sidebar beside the file')
+    H.eq(2, first.wins, 'one split beside the file')
     vim.cmd('wincmd p')
-    prompt({ win_type = 'sidebar' })
-    H.eq(2, H.state().wins, 'still one sidebar')
+    prompt({ win_type = 'split' })
+    H.eq(2, H.state().wins, 'still one split')
     H.eq(first.win, H.state().win, 'the same window')
 end)
 
-for _, win_type in ipairs({ 'float', 'sidebar' }) do
+for _, win_type in ipairs({ 'float', 'split' }) do
     H.test(win_type .. ': launching another terminal replaces the window rather than stacking', function()
         H.reset(file)
         prompt({ win_type = win_type })
@@ -550,45 +567,45 @@ for _, win_type in ipairs({ 'float', 'sidebar' }) do
     end)
 end
 
-H.test('a global prompt borrowing the sidebar is not taken for the sidebar\'s terminal', function()
+H.test('a global prompt borrowing the split is not taken for the split\'s terminal', function()
     H.reset(file)
-    prompt({ win_type = 'sidebar' })
+    prompt({ win_type = 'split' })
     local q_prompt = H.state().buf
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'for q' })
     vim.cmd('stopinsert')
-    -- From inside the sidebar: the global prompt borrows it.
+    -- From inside the split: the global prompt borrows it.
     prompt({ key = 'g' })
     local g_prompt = H.state().buf
     H.ok(g_prompt ~= q_prompt, 'the global terminal\'s own prompt')
     vim.cmd('stopinsert | wincmd p')
-    prompt({ win_type = 'sidebar' })
-    H.eq(q_prompt, H.state().buf, 'the sidebar terminal\'s prompt, back')
+    prompt({ win_type = 'split' })
+    H.eq(q_prompt, H.state().buf, 'the split terminal\'s prompt, back')
     H.eq({ 'for q' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), 'with its draft')
     H.send('for q')
-    H.eq(vim.b[q_prompt].foyer_term, H.state().buf, 'sent to the sidebar\'s terminal')
+    H.eq(vim.b[q_prompt].foyer_term, H.state().buf, 'sent to the split\'s terminal')
     H.ok(vim.api.nvim_buf_is_valid(g_prompt), 'the global prompt set aside, not wiped')
 end)
 
-H.test('a sidebar taken over for a file is left to it, and its successor kept', function()
+H.test('a split taken over for a file is left to it, and its successor kept', function()
     H.reset(file)
-    local function sidebar() H.press(function() foyer.terminal_command({ key = 'q', win_type = 'sidebar' }) end) end
-    sidebar()
+    local function split() H.press(function() foyer.terminal_command({ key = 'q', win_type = 'split' }) end) end
+    split()
     local taken = H.state().win
     vim.cmd('stopinsert | edit LICENSE')
     vim.cmd('wincmd p')
-    sidebar()
+    split()
     local successor = H.state().win
-    H.ok(successor ~= taken, 'a new sidebar rather than the user\'s window')
+    H.ok(successor ~= taken, 'a new split rather than the user\'s window')
     H.ok(vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(taken)):find('LICENSE$'), 'LICENSE left where it was')
     vim.cmd('stopinsert')
     vim.api.nvim_win_close(taken, true)
     vim.cmd('wincmd p')
-    sidebar()
-    H.eq(successor, H.state().win, 'the successor is still the sidebar')
+    split()
+    H.eq(successor, H.state().win, 'the successor is still the split')
     H.eq(2, H.state().wins, 'no third window')
 end)
 
-for _, win_type in ipairs({ 'float', 'sidebar' }) do
+for _, win_type in ipairs({ 'float', 'split' }) do
     H.test(win_type .. ': after a send, <C-o> finds the prompt empty and the selection gone', function()
         H.reset(file)
         -- A selection, so there is something that must not ride along again.
@@ -614,7 +631,7 @@ for _, win_type in ipairs({ 'float', 'sidebar' }) do
     end)
 end
 
-for _, win_type in ipairs({ 'float', 'sidebar' }) do
+for _, win_type in ipairs({ 'float', 'split' }) do
     H.test(win_type .. ': before a send, <C-o> shows the terminal and comes back to the draft', function()
         H.reset(file)
         prompt({ win_type = win_type })
@@ -678,22 +695,22 @@ end)
 
 H.test('a terminal in two windows: <C-o> in each goes to that window\'s prompt', function()
     H.reset(file)
-    prompt({ win_type = 'sidebar' })
-    local sidebar_prompt, sidebar = H.state().buf, H.state().win
-    H.send('from the sidebar')
+    prompt({ win_type = 'split' })
+    local split_prompt, split = H.state().buf, H.state().win
+    H.send('from the split')
     local term = H.state().buf
-    H.ok(H.state().terminal, 'the terminal took the sidebar')
+    H.ok(H.state().terminal, 'the terminal took the split')
     vim.cmd('stopinsert | wincmd p')
-    prompt()
+    prompt({ win_type = 'float' })
     local float_prompt, float = H.state().buf, H.state().win
-    H.ok(float_prompt ~= sidebar_prompt, 'a prompt of its own')
+    H.ok(float_prompt ~= split_prompt, 'a prompt of its own')
     H.send('from the float')
     H.eq(term, H.state().buf, 'the same terminal in the float')
     vim.cmd('stopinsert')
     vim.api.nvim_win_close(float, true)
-    vim.api.nvim_set_current_win(sidebar)
+    vim.api.nvim_set_current_win(split)
     H.feed('<C-o>')
-    H.eq(sidebar_prompt, H.state().buf, 'the sidebar\'s prompt, not the float\'s')
+    H.eq(split_prompt, H.state().buf, 'the split\'s prompt, not the float\'s')
 end)
 
 H.test('in a window of its own, a terminal\'s <C-o> is Vim\'s', function()

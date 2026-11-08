@@ -1098,6 +1098,12 @@ local function entry_is_global(entry)
     return type(entry) == "table" and entry.scope == "global"
 end
 
+-- Where the entry's prompt opens unless a call says otherwise: 'float', or
+-- else a split.
+local function entry_win_type(entry)
+    return type(entry) == "table" and entry.win_type or nil
+end
+
 -- Where a terminal's identity lives. A global entry keeps one terminal for the
 -- whole session, wherever you are; every other one is per project root.
 local function entry_bucket(entry, root)
@@ -1199,8 +1205,14 @@ function M.send_terminal_command(term_key, opts)
         if opts.selection then title = title .. ' + ' .. opts.selection end
         -- A global agent is a conversation of its own rather than a helper to
         -- the code on screen, so its prompt takes the window you are in, as a
-        -- page you turn to, instead of a float or a sidebar beside your code.
-        local win_type = entry_is_global(entry) and 'current' or opts.win_type
+        -- page you turn to, instead of a float or a split beside your code.
+        -- Any other's opens where the call asks, else where its entry does: a
+        -- call knows best, <C-t> staying in the window it was pressed in.
+        local win_type = 'current'
+        if not entry_is_global(entry) then
+            -- 'float' alone is a float; anything else, or nothing, a split.
+            win_type = (opts.win_type or entry_win_type(entry)) == 'float' and 'float' or 'split'
+        end
         -- @ mentions name files the way this agent resolves them: from the
         -- directory it was started in, or absolutely for one that belongs to
         -- no project.
@@ -1216,7 +1228,7 @@ function M.send_terminal_command(term_key, opts)
             -- The terminal <C-o> shows, on the buffer.
             vim.b[bufnr].foyer_term = target_buf
             vim.b[bufnr].foyer_term_title = term
-            -- A sidebar prompt outlives the send that opened it, so this send's
+            -- A split's prompt outlives the send that opened it, so this send's
             -- ref, seed and history have to reach the buffer rather than the
             -- closure that set the window up.
             if reused then
@@ -1472,7 +1484,7 @@ end
 
 -- Switch to this project's running terminal used last before the one in front
 -- of the user: two of them toggle, as CTRL-^ does for buffers. Global ones are
--- left out, being no part of the project. In the sidebar or the float foyer
+-- left out, being no part of the project. In the split or the float foyer
 -- keeps, the other terminal takes the window the way a launch does, with its
 -- prompt behind <C-o>, draft and all -- only showing the terminal rather than
 -- the prompt. In any other window the terminal is simply shown.
@@ -1525,7 +1537,7 @@ function M.edit_selection()
     if mode == 'V' then adata = adata:gsub('\n$', '') end
     local lines = vim.split(adata, '\n', { plain = true })
     local height = math.min(math.max(#lines, math.ceil(#adata / width) + 2), vim.o.lines - 4)
-    create_window('floating', 'Edit selection', function(bufnr, win_id)
+    create_window('float', 'Edit selection', function(bufnr, win_id)
         vim.bo[bufnr].filetype = filetype
         init_command_buf_shared(bufnr, win_id, lines, function()
             vim.cmd('normal! gg0' .. mode .. 'G$"ay')

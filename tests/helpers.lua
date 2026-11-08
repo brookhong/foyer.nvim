@@ -106,7 +106,9 @@ function H.send(lines, nothing)
     end, 20)
 end
 
--- Back to a single window showing {buf}, out of insert mode, no floats.
+-- Back to a single window showing {buf}, out of insert mode, no floats. A
+-- new window, not :only in the current one: that may be a split of foyer's,
+-- which would then go on being taken for one.
 function H.reset(buf)
     vim.cmd('stopinsert')
     for _, w in ipairs(vim.api.nvim_list_wins()) do
@@ -114,7 +116,7 @@ function H.reset(buf)
             vim.api.nvim_win_close(w, true)
         end
     end
-    vim.cmd('silent! only')
+    vim.cmd('silent! split | silent! only')
     if buf then vim.api.nvim_set_current_buf(buf) end
     H.sent_clear()
 end

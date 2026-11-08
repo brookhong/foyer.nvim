@@ -29,7 +29,19 @@ It also manages named, project-scoped terminals, keeps a persistent per
 terminal command history, and can edit a visual selection in a scratch window.
 
 The plugin defines no global mappings. See |foyer-api| and wire up the
-functions you want.
+functions you want, for instance: >lua
+    local foyer = require('foyer')
+    -- Pick a terminal by its key and write a prompt for it; from Visual
+    -- mode the prompt carries the selected lines.
+    vim.keymap.set({ 'n', 'v' }, '<leader>a', foyer.terminal_command,
+        { desc = 'Send command to a picked terminal' })
+    -- Edit the Visual selection in a floating buffer.
+    vim.keymap.set('v', 'E', foyer.edit_selection)
+    -- Any window, foyer's among them, to full screen and back.
+    vim.keymap.set('n', '<leader>z', foyer.toggle_full_size)
+    -- Any tab, window, buffer or recent file, by its label.
+    vim.keymap.set('n', '<leader>b', foyer.jump)
+<
 
 ==============================================================================
 2. REQUIREMENTS                                           *foyer-requirements*
@@ -52,21 +64,32 @@ commands ~
     - a table `{ command, arguments }`; the first element doubles as the
       display name in the window title
     - a function `f(project_root, launch_info)` returning either of the above.
-      It is called every time, so the terminal can depend on the project.
+      It is called every time, so the terminal can depend on the project: >lua
+        e = function(project_root, launch_info)
+            if project_root:find('kernel', 1, true) then
+                return { 'bash', '--norc' }
+            end
+            return 'zsh'
+        end,
+<
 
     A table entry may also name, alongside its two elements:
 
     cwd     Directory the terminal is spawned in, instead of the project root.
+    win_type
+            `'float'` opens the terminal's prompt in a float rather than a
+            split beside your code, unless a call names a `win_type` of its
+            own, see |foyer-opts|. Ignored with `scope = 'global'`.
     scope   `'global'` keeps one terminal for the whole session, wherever you
             are. Anything else, or nothing, is the default: one terminal per
             project root. A global terminal's prompt takes the current window
-            rather than a float or a sidebar, and the terminal takes it in
+            rather than a split or a float, and the terminal takes it in
             turn once you send;
             closing either hands the window back to the buffer it showed.
             Use it for an agent you want a single long conversation with,
             apart from any project: >lua
         commands = {
-            z = 'zsh',
+            z = { 'zsh', win_type = 'float' },
             a = { 'opencode', '-c' },
             F = { 'opencode', '-c --agent counselor',
                   cwd = vim.env.HOME, scope = 'global' },
@@ -175,7 +198,10 @@ launch_info ~
     |foyer-setup| root to name the file against, `project_root` is absent and
     `current_file` is absolute instead.
 
-    Any other key you add reaches the resolver too.
+    Any other key you add reaches the resolver too, say `ticket = 'JIRA-123'`.
+    Passing a table yourself opts out of the capture entirely. In a buffer
+    with no file -- a terminal, a scratch buffer, one not written yet -- the
+    captured table is empty.
 
 Command {opts} accepted by |foyer.terminal_command()| and
 |foyer.send_terminal_command()|:
@@ -185,9 +211,10 @@ Command {opts} accepted by |foyer.terminal_command()| and
                   `command` then seeds the buffer.
     selection     Text appended to the prompt as it is sent. Set for you
                   when the send starts in Visual mode. See below.
-    win_type      `'sidebar'` for a right-hand split; otherwise floating.
-                  Ignored for a `scope = 'global'` terminal, see
-                  |foyer-setup|.
+    win_type      `'float'` for a float; otherwise a split beside your
+                  code, on the right. Given, it wins over the terminal's
+                  own `win_type`; not given, that is used, see
+                  |foyer-setup|. Ignored for a `scope = 'global'` terminal.
     auto_start    Spawn the terminal if it does not exist yet. The send
                   waits for it to start, see |foyer-limitations|.
     launch_info   See |foyer.launch_info|.
@@ -231,14 +258,14 @@ will not be true next time. Type nothing and nothing is sent; a selection
 alone asks the agent nothing. A `selection` you pass yourself is appended as
 given.
 
-A sidebar outlives the send that opened it, so sending again aims at the
+A split outlives the send that opened it, so sending again aims at the
 window already there rather than splitting another one: a draft still in it is
 yours and stays -- only an empty one takes a seeded `command` -- with the new
 selection replacing whatever the title advertised before, and the terminal
 left in there gives the window back to its prompt: empty after a send, still
 holding the draft if you only looked at the terminal with <C-o>. A
 floating window already open is reused the same way rather than stacked.
-Launching a different terminal hands the sidebar or float to the new
+Launching a different terminal hands the split or float to the new
 terminal's prompt, in the same window; the previous terminal's prompt is set
 aside with its draft, and comes back as you left it when that terminal is
 launched there again.
@@ -276,13 +303,15 @@ send_terminal_command({term_key}, {opts})
                                                      *foyer.switch_terminal()*
 switch_terminal()
     Switch to this project's running terminal used last before the current
-    one, as CTRL-^ does for buffers: with two it toggles. A terminal counts
-    as used when it is launched, shown, or its prompt is entered. Global
-    terminals are left out, and none is started. The other terminal is shown
-    in the same window; in the sidebar or float foyer keeps, its prompt is a
-    <C-o> away with the draft left in it, and the terminal left keeps its
-    own. In any other window the terminal is just shown there. Mapped to
-    `keys.terminal.switch` in foyer's terminals.
+    one, as CTRL-^ does for buffers: with two it toggles, and with more the
+    third is a picker away. A terminal counts as used when it is launched,
+    shown, or its prompt is entered. Global terminals are left out, and none
+    is started. The other terminal is shown in the same window; in the
+    split or float foyer keeps, its prompt is a <C-o> away with the draft
+    left in it, and the terminal left keeps its own. In any other window the
+    terminal is just shown there. Mapped to `keys.terminal.switch` in foyer's
+    terminals, <C-t> by default, which in a terminal would only go back up a
+    tag stack it is never on.
 
                                                       *foyer.edit_selection()*
 edit_selection()
@@ -376,9 +405,16 @@ make `fix this @src/main.c:88`, which every agent understands as it is.
 6. MAPPINGS                                                   *foyer-mappings*
 
 All mappings below are buffer-local and created by the plugin. Each is set
-by the `keys` action named beside it, see |foyer-setup|; the `@` menu's are
-not configurable. |foyer.edit_selection()|'s window takes `send`, `close`
-and `close_if_empty` from `keys.prompt`.
+by the `keys` action named beside it, see |foyer-setup|: >lua
+    keys = {
+        -- Send with <Leader>s in Normal mode, nothing in Insert mode.
+        prompt = { send = { n = '<Leader>s' } },
+        -- Leave <C-r> alone in terminals.
+        terminal = { cd_root = false },
+    }
+<
+The `@` menu's keys are not configurable. |foyer.edit_selection()|'s window
+takes `send`, `close` and `close_if_empty` from `keys.prompt`.
 
 In the command buffer ~
 
@@ -524,14 +560,23 @@ colors rather than links so they stay distinct in any colorscheme. Groups you
 set yourself are kept; set them from a |ColorScheme| autocmd, since a
 colorscheme change clears them.
 
-    FoyerJumpTitle          section titles
-    FoyerJumpName           buffer, window and file names
-    FoyerJumpCurrent        the current buffer or window
-    FoyerJumpNoName         buffers without a file name
-    FoyerJumpTerminal       terminals foyer started
-    FoyerJumpLabel          hint labels
-    FoyerJumpLabelTyped     the part of a hint label already typed
-    FoyerJumpBackdrop       dims the editor behind it, see `jump.backdrop`
+    FoyerJumpTitle        section titles
+                          dark #65737e, light #8a8a8a
+    FoyerJumpName         buffer, window and file names
+                          dark #6699cc bold, light #005f87 bold
+    FoyerJumpCurrent      the current buffer or window
+                          dark #99c794 bold, light #008700 bold
+    FoyerJumpNoName       buffers without a file name
+                          dark #f99157 italic, light #af5f00 italic
+    FoyerJumpTerminal     terminals foyer started
+                          dark #c594c5 bold, light #875faf bold
+    FoyerJumpLabel        hint labels
+                          dark #1b2b34 on #fac863 bold,
+                          light #ffffff on #d75f00 bold
+    FoyerJumpLabelTyped   the part of a hint label already typed
+                          dark #1b2b34 on #65737e, light #ffffff on #8a8a8a
+    FoyerJumpBackdrop     dims the editor behind it, see `jump.backdrop`
+                          bg #000000
 
 ==============================================================================
 8. LIMITATIONS                                             *foyer-limitations*

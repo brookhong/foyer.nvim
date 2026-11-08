@@ -49,14 +49,12 @@ require('foyer').setup({
 
 ```lua
 -- <leader>a，再按 Agent 对应的字母
-vim.keymap.set({ 'n', 'v' }, '<leader>a', function()
-    require('foyer').terminal_command({ win_type = 'sidebar' })
-end)
+vim.keymap.set({ 'n', 'v' }, '<leader>a', require('foyer').terminal_command)
 ```
 
 之后，`<leader>a c` 找 Claude Code，`<leader>a o` 找 opencode，换个字母就是换个 Agent。它们事先都不用开着，第一次选中时 foyer 会帮你启动。
 
-弹出来的是一个**真正的缓冲区**（浮窗或侧边栏，随你选）。写多长、分多少行都行，
+弹出来的是一个**真正的缓冲区**（默认在代码旁的分屏里，也可以设成浮窗）。写多长、分多少行都行，
 你熟悉的移动、文本对象、宏和插件统统可用。
 插入模式按 `<C-s>`，或普通模式按 `<CR>`，整段内容**作为一条提示词**送到 Agent。
 
@@ -159,7 +157,7 @@ F = { 'opencode', '-c --agent counselor',
 ```
 
 `scope = 'global'` 表示它只有一个，不按项目区分，所以不管在哪个仓库，`<leader>a F` 打开的都是同一段对话。
-它是一段独立的对话，不是给眼前代码帮忙的助手，所以不会在代码旁边弹出浮窗或侧边栏，而是直接占用你当前的窗口，
+它是一段独立的对话，不是给眼前代码帮忙的助手，所以不会在代码旁边弹出分屏或浮窗，而是直接占用你当前的窗口，
 就像翻到另一页：写好问题发出去，回答就出现在原地；按 `<CR>` 翻回刚才在看的文件，窗口布局原封不动。
 项目里的 Agent 完全不知道你中途走开过。
 
@@ -231,7 +229,7 @@ F = { 'opencode', '-c --agent counselor',
         },
     },
     keys = {
-        { '<leader>a', function() require('foyer').terminal_command({ win_type = 'sidebar' }) end,
+        { '<leader>a', function() require('foyer').terminal_command() end,
           mode = { 'n', 'v' }, desc = 'foyer: prompt a terminal' },
     },
 }
