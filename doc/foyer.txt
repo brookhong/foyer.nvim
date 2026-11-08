@@ -389,8 +389,8 @@ history.
                            menu open, the keys' own)
     <C-f>             n i  Label the most used prompts: a label inserts
                            one at the cursor, Shift+label replaces the
-                           draft with it; with a menu open,
-                           the menu's (`history_pick`)
+                           draft with it; `/` filters them; with a
+                           menu open, the menu's (`history_pick`)
     @                 i    Mention an open file, see |foyer-mention|
     <Esc>             n    Close the window if the buffer is empty
                            (`close_if_empty`)
@@ -426,8 +426,18 @@ prompt per character. A label puts its prompt in at the cursor, after it in
 Normal mode as |p| does, at it in Insert mode as typing does, and leaves the
 cursor past it; the label with Shift replaces the whole draft with it. Nothing
 is sent until you send it. The list is not filtered by the draft, so the draft
-never changes which prompt is behind which label; to search, use <Up>. The key
-is `keys.prompt.history_pick`, see |foyer-setup|.
+never changes which prompt is behind which label. The key is
+`keys.prompt.history_pick`, see |foyer-setup|.
+
+`/` in the list filters it: what you type narrows it as you go to the
+prompts holding every word of it, in any order, ignoring the case of A to Z
+-- `stage review` finds "review the staged changes" -- over the whole
+history rather than the prompts on screen, still the most worth recalling
+first, the words highlighted with |hl-FoyerMatch|. What you type shows in the
+list's top border, and the list keeps the size and place it opened with, so
+nothing moves as it narrows. <BS> takes a character back, <C-w> a word, <C-u>
+the lot. <CR> goes back to picking, the labels given out afresh to what is
+left; <Esc> clears the filter, and once there is none closes the list.
 
                                                                *foyer-mention*
 In the prompt for one of your `commands`, `@` at the start of a word lists the
@@ -482,7 +492,8 @@ window stays put until the next send.
 
                                                                *hl-FoyerMatch*
 FoyerMatch
-    The filter text matched inside the history palette. Defaults to
+    What the draft matches as <Up> walks history, and the words a `/` filter
+    matches in the <C-f> list, see |foyer-history|. Defaults to
     `bg=#333333 fg=#ff7700 bold`, declared with `default = true` so your
     colorscheme or an explicit |nvim_set_hl()| wins.
 

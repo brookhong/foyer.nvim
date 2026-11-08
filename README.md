@@ -20,7 +20,7 @@ until you are done with it here.
   `stdpath('cache')/foyer.json`, scoped per terminal name. `<Up>`/`<Down>`
   walk it, and typing first filters the history by substring, with the match
   highlighted. `<C-f>` lists your most used prompts, ranked by frequency and
-  recency.
+  recency, and `/` there searches all of them by words.
 - **Multi-line prompts** — write a paragraph across many lines, send it as one
   payload. Made for agent CLIs, not just shell one-liners.
 - **Editor context in the prompt** — start from a visual selection and it goes
@@ -344,7 +344,7 @@ history.
 | `<C-p>` / `<Up>` | n | `history_prev` | Previous history entry |
 | `<C-n>` / `<Down>` | n | `history_next` | Next history entry |
 | `<Up>` / `<Down>` | i | `history_prev` / `history_next` | Previous / next history entry from the first / last line; elsewhere in a draft of many lines, or with a menu open, the keys' own |
-| `<C-f>` | n, i | `history_pick` | Label the most used prompts: a label inserts one at the cursor, Shift+label replaces the draft with it; with a menu open, the menu's |
+| `<C-f>` | n, i | `history_pick` | Label the most used prompts: a label inserts one at the cursor, Shift+label replaces the draft with it; `/` filters them; with a menu open, the menu's |
 | `@` | i | | Mention an open file, see below |
 | `<Esc>` | n | `close_if_empty` | Close the window if the buffer is empty |
 | `<C-c>` | n | `close` | Close the window, discarding the draft |
@@ -370,7 +370,18 @@ prompt goes in at the cursor, as `p` puts it in normal mode and as typed in
 insert mode, so you can build on what you have written; type it with Shift and
 it replaces the whole draft. Either way nothing is sent until you send it. The
 list is not filtered by what you have typed, so the draft never changes which
-prompt is behind which label; to search, use `<Up>`.
+prompt is behind which label.
+
+To find one further down, press `/` in the list and type: it narrows as you
+go to the prompts holding every word you typed, in any order, ignoring the
+case of A to Z — `stage review` finds "review the staged changes" — over your
+whole history rather than the few prompts on screen, still the most worth
+recalling first, with the words highlighted. What you type shows in the list's
+top border, and the list keeps the size and place it opened with, so nothing
+moves under your eye as it narrows. `<BS>` takes a character back, `<C-w>` a
+word, `<C-u>` the lot. `<CR>` goes back to picking, the labels given out
+afresh to what is left; `<Esc>` clears the filter, and once there is none
+closes the list.
 
 Once a prompt is sent, the terminal takes its window, and `<C-o>` from there
 comes back to the prompt emptied, with the selection it carried gone: a
@@ -442,7 +453,7 @@ and the window stays put until the next send.
 
 | Group | Default | Used for |
 | --- | --- | --- |
-| `FoyerMatch` | `bg=#333333 fg=#ff7700 bold` | The filter text matched in the history palette |
+| `FoyerMatch` | `bg=#333333 fg=#ff7700 bold` | What the draft matches as `<Up>` walks history, and the words a `/` filter matches in the `<C-f>` list |
 | `FoyerBackdrop` | `bg=#000000` | The veil dimming the editor behind the terminal picker (needs `termguicolors`) |
 
 Defined with `default = true`, so override it with `vim.api.nvim_set_hl` or from

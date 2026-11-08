@@ -218,6 +218,52 @@ local function prompt_rows(cmd, width)
     return rows
 end
 
+-- The words of {query}, lowercased: what a prompt must hold, each of them,
+-- in any order, to pass the filter. Only A to Z have their case ignored:
+-- lowering anything else may change its length in bytes, and the highlight
+-- finds the words by byte in the rows on screen.
+local function query_words(query)
+    local words = {}
+    for word in query:lower():gmatch('%S+') do table.insert(words, word) end
+    return words
+end
+
+-- Whether {cmd} holds every one of {words}, ignoring the case of A to Z.
+local function holds_all(cmd, words)
+    local text = cmd:lower()
+    for _, word in ipairs(words) do
+        if not text:find(word, 1, true) then return false end
+    end
+    return true
+end
+
+-- Where {words} are in {rows}, the rows a prompt is shown in, as
+-- { row, start byte, end byte }, for the highlight: found afresh in what is
+-- on screen, which wrapping and "…" may have cut.
+local function word_marks(rows, words)
+    local marks = {}
+    for r, row in ipairs(rows) do
+        local text = row:lower()
+        for _, word in ipairs(words) do
+            local from = 1
+            while true do
+                local s, e = text:find(word, from, true)
+                if not s then break end
+                table.insert(marks, { r, s - 1, e })
+                from = e + 1
+            end
+        end
+    end
+    return marks
+end
+
+-- Whether {key}, as getcharstr() returns it, is a character to type rather
+-- than a special key or a control character.
+local function typed_char(key)
+    local b = key:byte(1)
+    return b ~= nil and b >= 0x20 and b ~= 0x7f and b ~= 0x80
+end
+
 -- {entries}, the most worth recalling first, in a popup at {prompt_win}'s cursor
 -- with a hint label in front of each, as jump() draws them; one key picks.
 -- One entry per label character, so a label is always a single key, and only
@@ -225,16 +271,25 @@ end
 -- with Shift -- to replace the draft, not just to add to it -- or nil once the
 -- user backs out. A key that is no label is ignored: the choices are on screen, so
 -- it is a slip of the finger.
+--
+-- `/` filters them: what is typed narrows the list as it goes, to the
+-- prompts holding every word of it, in any order, over the whole history
+-- rather than the few on screen, still most worth recalling first. <CR> goes
+-- back to picking among what is left, the labels given out afresh. <Esc>
+-- clears the filter, and once there is none closes the popup. The popup
+-- keeps the size and place it opened with, and the filter is typed in its
+-- top border, so nothing moves under the eye as the list narrows.
 local function pick_prompt(entries, prompt_win)
     local jump = require('foyer.jump')
     local chars = config.jump.characters
-    local n = math.min(#entries, #chars)
 
+    -- One width for the count column whatever the filter leaves, so the popup
+    -- does not jump about as it narrows.
     local counts = {}
     local count_width = 0
-    for i = 1, n do
-        counts[i] = ('%d\u{00d7}'):format(entries[i].count or 1)
-        count_width = math.max(count_width, vim.fn.strdisplaywidth(counts[i]))
+    for _, entry in ipairs(entries) do
+        counts[entry] = ('%d\u{00d7}'):format(entry.count or 1)
+        count_width = math.max(count_width, vim.fn.strdisplaywidth(counts[entry]))
     end
 
     -- As wide as the prompt, so the text wraps where the user wrote it, but
@@ -261,92 +316,187 @@ local function pick_prompt(entries, prompt_win)
     local below = bottom - at.row - 2
     local above = at.row - 1 - 2
     local max_rows = math.max(1, below, above)
-    local rows, total = {}, 0
-    local text_width = 0
-    for i = 1, n do
-        local r = prompt_rows(entries[i].cmd, text_cap)
-        if total + #r > max_rows then
-            if total > 0 then n = i - 1; break end
-            r = { r[1] }
-        end
-        rows[i] = r
-        total = total + #r
-        for _, row in ipairs(r) do
-            text_width = math.max(text_width, vim.fn.strdisplaywidth(row))
-        end
-    end
-
-    local lines, marks = {}, {}
-    for i = 1, n do
-        local first = (' %s  %s'):format(chars:sub(i, i), rows[i][1])
-        first = first .. (' '):rep(4 + text_width - vim.fn.strdisplaywidth(first) + 2)
-            .. (' '):rep(count_width - vim.fn.strdisplaywidth(counts[i]))
-        table.insert(marks, { #lines, #first })
-        table.insert(lines, first .. counts[i] .. ' ')
-        for j = 2, #rows[i] do
-            table.insert(lines, '    ' .. rows[i][j])
-        end
-    end
-
-    local footer = ' label: insert · Shift: replace · <Esc> '
-    local width = 4 + text_width + 2 + count_width + 1
-    width = math.min(vim.o.columns - 4, math.max(width, vim.fn.strdisplaywidth(footer)))
 
     jump.setup_highlights()
     local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     local ns = vim.api.nvim_create_namespace('foyer_pick_prompt')
-    for _, m in ipairs(marks) do
-        vim.api.nvim_buf_set_extmark(buf, ns, m[1], 0, { end_col = 3, hl_group = jump.HL.label })
-        vim.api.nvim_buf_set_extmark(buf, ns, m[1], m[2], { end_col = #lines[m[1] + 1], hl_group = 'Comment' })
-    end
-    vim.bo[buf].modifiable = false
+    local win, fixed
+    local query, typing = '', false
 
-    -- No backdrop: it would dim the prompt too, when that is a split.
-    local height = math.min(#lines, max_rows)
-    local row = at.row
-    if height > below and above > below then row = at.row - 1 - height - 2 end
-    -- Left-aligned with the cursor, pushed back left to stay on screen.
-    local col = math.max(0, math.min(at.col - 1, vim.o.columns - width - 2))
-    -- Whatever goes wrong while it is up, the cursor comes back and the popup
-    -- goes: a hidden cursor and a stray float would outlive the error.
-    local win, restore_cursor, picked, replace
-    local ok, err = pcall(function()
-        win = vim.api.nvim_open_win(buf, false, {
+    -- The entries the filter leaves, in the order they came.
+    local function matching()
+        local words = query_words(query)
+        if #words == 0 then return entries end
+        return vim.tbl_filter(function(entry) return holds_all(entry.cmd, words) end, entries)
+    end
+
+    -- Draw what the filter leaves, labelled: in a popup fitted to the list on
+    -- the first draw, and kept at that size and place after. Returns the
+    -- entries behind the labels.
+    local function render()
+        local list = matching()
+        local words = query_words(query)
+        local n = math.min(#list, #chars)
+        local rows, total = {}, 0
+        local text_width = 0
+        -- Once open, the popup's size is the one it opened with: the text
+        -- wraps to it, and only as much as it holds is shown.
+        local cap = fixed and math.max(10, fixed.width - 4 - 2 - count_width - 1) or text_cap
+        local room = fixed and fixed.height or max_rows
+        for i = 1, n do
+            local r = prompt_rows(list[i].cmd, cap)
+            if total + #r > room then
+                if total > 0 then n = i - 1; break end
+                r = { r[1] }
+            end
+            rows[i] = r
+            total = total + #r
+            for _, row in ipairs(r) do
+                text_width = math.max(text_width, vim.fn.strdisplaywidth(row))
+            end
+        end
+
+        local lines, labels, hits = {}, {}, {}
+        for i = 1, n do
+            local count = counts[list[i]]
+            local first = (' %s  %s'):format(chars:sub(i, i), rows[i][1])
+            first = first .. (' '):rep(4 + text_width - vim.fn.strdisplaywidth(first) + 2)
+                .. (' '):rep(count_width - vim.fn.strdisplaywidth(count))
+            table.insert(labels, { #lines, #first })
+            if #words > 0 then
+                for _, m in ipairs(word_marks(rows[i], words)) do
+                    -- Every row starts 4 bytes in: the label's, or the indent.
+                    table.insert(hits, { #lines + m[1] - 1, 4 + m[2], 4 + m[3] })
+                end
+            end
+            table.insert(lines, first .. count .. ' ')
+            for j = 2, #rows[i] do
+                table.insert(lines, '    ' .. rows[i][j])
+            end
+        end
+        if n == 0 then lines = { '    no match ' } end
+
+        -- The filter in the top border, left-aligned, so it grows to the
+        -- right as it is typed and the rest stays put.
+        local title, title_pos = ' Frequent prompts / Foyer ', 'center'
+        if typing or query ~= '' then
+            title, title_pos = (' /%s%s '):format(query, typing and '\u{2581}' or ''), 'left'
+        end
+        local footer
+        if typing then
+            footer = ' <CR>: pick · <Esc>: clear '
+        elseif query ~= '' then
+            footer = ' label: insert · Shift: replace · <Esc>: clear '
+        else
+            footer = ' label: insert · Shift: replace · /: filter · <Esc> '
+        end
+        local width = 4 + text_width + 2 + count_width + 1
+        width = math.min(vim.o.columns - 4, math.max(width, vim.fn.strdisplaywidth(footer), 14))
+
+        vim.bo[buf].modifiable = true
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.bo[buf].modifiable = false
+        vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+        for _, m in ipairs(labels) do
+            vim.api.nvim_buf_set_extmark(buf, ns, m[1], 0, { end_col = 3, hl_group = jump.HL.label })
+            vim.api.nvim_buf_set_extmark(buf, ns, m[1], m[2], { end_col = #lines[m[1] + 1], hl_group = 'Comment' })
+        end
+        for _, h in ipairs(hits) do
+            vim.api.nvim_buf_set_extmark(buf, ns, h[1], h[2], { end_col = h[3], hl_group = 'FoyerMatch' })
+        end
+        if n == 0 then
+            vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, { end_col = #lines[1], hl_group = 'Comment' })
+        end
+
+        -- No backdrop: it would dim the prompt too, when that is a split.
+        if not fixed then
+            local height = math.min(#lines, max_rows)
+            local row = at.row
+            if height > below and above > below then row = at.row - 1 - height - 2 end
+            -- Left-aligned with the cursor, pushed back left to stay on screen.
+            local col = math.max(0, math.min(at.col - 1, vim.o.columns - width - 2))
+            fixed = { width = width, height = height, row = row, col = col }
+        end
+        local cfg = {
             relative = 'editor',
-            width = width,
-            height = height,
-            row = row,
-            col = col,
-            style = 'minimal',
+            width = fixed.width,
+            height = fixed.height,
+            row = fixed.row,
+            col = fixed.col,
             border = 'rounded',
-            title = ' Frequent prompts / Foyer ',
-            title_pos = 'center',
+            title = title,
+            title_pos = title_pos,
             footer = footer,
             footer_pos = 'right',
-            focusable = false,
-            noautocmd = true,
+        }
+        if win then
+            vim.api.nvim_win_set_config(win, cfg)
+        else
+            cfg.style = 'minimal'
+            cfg.focusable = false
+            cfg.noautocmd = true
             -- Above the prompt, should that be a float itself.
-            zindex = 60,
-        })
+            cfg.zindex = 60
+            win = vim.api.nvim_open_win(buf, false, cfg)
+        end
+        local shown = {}
+        for i = 1, n do shown[i] = list[i] end
+        return shown
+    end
+
+    -- Whatever goes wrong while it is up, the cursor comes back and the popup
+    -- goes: a hidden cursor and a stray float would outlive the error.
+    local restore_cursor, picked, replace
+    local ok, err = pcall(function()
+        local shown = render()
         restore_cursor = jump.hide_cursor()
 
-        local esc, ctrl_c = vim.keycode('<Esc>'), vim.keycode('<C-c>')
+        local esc, ctrl_c, cr = vim.keycode('<Esc>'), vim.keycode('<C-c>'), vim.keycode('<CR>')
+        local bs, ctrl_h, ctrl_u = vim.keycode('<BS>'), vim.keycode('<C-h>'), vim.keycode('<C-u>')
+        local ctrl_w = vim.keycode('<C-w>')
         while true do
             vim.cmd('redraw')
             local read, key = pcall(jump.read_key)
-            if not read or key == esc or key == ctrl_c then break end
-            -- Shift on a label replaces the draft, unless the shifted key is a
-            -- label of its own.
-            local idx = chars:find(key, 1, true)
-            local shifted = false
-            if not idx and key:lower() ~= key then
-                idx = chars:find(key:lower(), 1, true)
-                shifted = idx ~= nil
-            end
-            if idx and idx <= n then
-                picked, replace = entries[idx], shifted
-                break
+            if not read or key == ctrl_c then break end
+            if typing then
+                if key == esc then
+                    query, typing = '', false
+                elseif key == cr then
+                    typing = false
+                elseif key == bs or key == ctrl_h then
+                    -- Past the start, back to picking, as a search line does.
+                    if query == '' then typing = false end
+                    query = vim.fn.strcharpart(query, 0, vim.fn.strchars(query) - 1)
+                elseif key == ctrl_w then
+                    -- The word before, and the spaces after it, as on the
+                    -- command line.
+                    query = query:gsub('%s+$', ''):gsub('%S+$', '')
+                elseif key == ctrl_u then
+                    query = ''
+                elseif typed_char(key) then
+                    query = query .. key
+                end
+                shown = render()
+            elseif key == esc then
+                if query == '' then break end
+                query = ''
+                shown = render()
+            elseif key == '/' then
+                typing = true
+                shown = render()
+            else
+                -- Shift on a label replaces the draft, unless the shifted key
+                -- is a label of its own.
+                local idx = chars:find(key, 1, true)
+                local shifted = false
+                if not idx and key:lower() ~= key then
+                    idx = chars:find(key:lower(), 1, true)
+                    shifted = idx ~= nil
+                end
+                if idx and shown[idx] then
+                    picked, replace = shown[idx], shifted
+                    break
+                end
             end
         end
     end)

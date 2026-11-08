@@ -138,6 +138,123 @@ H.test('<C-f> in Insert mode inserts and goes on typing', function()
     answer(nil)
 end)
 
+-- Answer the prompt picker with each of {keys} in turn, noting what its popup
+-- showed -- lines, title, footer, place and size -- before each.
+local seen
+local function answers(keys)
+    seen = {}
+    local i = 0
+    jump.read_key = function()
+        for _, w in ipairs(vim.api.nvim_list_wins()) do
+            local cfg = vim.api.nvim_win_get_config(w)
+            -- The picker's title is the filter while there is one.
+            if cfg.zindex == 60 and cfg.title then
+                local buf = vim.api.nvim_win_get_buf(w)
+                local hl = {}
+                for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+                    -- The first row's, to compare with what was typed.
+                    if m[4].hl_group == 'FoyerMatch' and m[2] == 0 then
+                        local line = vim.api.nvim_buf_get_lines(buf, m[2], m[2] + 1, false)[1]
+                        table.insert(hl, line:sub(m[3] + 1, m[4].end_col))
+                    end
+                end
+                table.insert(seen, {
+                    lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false),
+                    title = cfg.title[1][1],
+                    footer = cfg.footer[1][1],
+                    hl = table.concat(hl),
+                    box = { vim.api.nvim_win_get_position(w), cfg.width, cfg.height },
+                })
+            end
+        end
+        i = i + 1
+        if i > #keys then return '\3' end
+        return keys[i]
+    end
+end
+
+H.test('/ in the picker filters history by words, over all of it', function()
+    -- More prompts than labels, so the one wanted is off the list at first.
+    local labels = #require('foyer.config').options.jump.characters
+    for k = 1, labels + 2 do
+        H.reset(file)
+        prompt(); H.send('filler ' .. k)
+    end
+    H.reset(file)
+    prompt(); H.send('review the staged changes')
+    H.reset(file)
+    prompt(); H.send('Stage the review notes')
+    -- The oldest filler, sent once, is the least worth recalling.
+    H.reset(file)
+    prompt()
+    vim.cmd('stopinsert')
+    answers({ '/', 'f', 'i', 'l', 'l', 'e', 'r', ' ', '1', '\r', 'a' })
+    H.feed('<C-f>')
+    local first = seen[1]
+    H.ok(first.footer:find('/: filter', 1, true), 'the key offered: ' .. first.footer)
+    H.eq(labels, #vim.tbl_filter(function(l) return l:match('^ %S  ') end, first.lines), 'one per label')
+    H.ok(not vim.iter(first.lines):any(function(l) return l:match('filler 1 ') end), 'filler 1 off the list')
+    H.eq(' /\u{2581} ', seen[2].title, 'the filter typed in the top border')
+    local filtered = seen[10]
+    H.eq(' /filler 1\u{2581} ', filtered.title, 'as typed')
+    for _, l in ipairs(filtered.lines) do
+        if l:match('^ %S  ') then H.ok(l:find('filler 1', 1, true), 'only "filler" and "1": ' .. l) end
+    end
+    H.ok(vim.iter(filtered.lines):any(function(l) return l:match('filler 1 ') end), 'filler 1 on it now')
+    H.eq('filler1', filtered.hl, 'the words highlighted in the first row')
+    for k = 2, #seen do H.eq(first.box, seen[k].box, 'the popup stays put, key ' .. k) end
+    H.ok(seen[11].title:find('/filler 1 ', 1, true), 'picking among them: ' .. seen[11].title)
+    local picked = vim.api.nvim_buf_get_lines(0, 0, -1, false)[1]
+    H.ok(picked:match('^filler 1%d?$'), 'a label picks from the filtered list: ' .. picked)
+    answer(nil)
+end)
+
+H.test('the words match in any order, ignoring case; nothing fuzzy', function()
+    H.reset(file)
+    prompt()
+    vim.cmd('stopinsert')
+    answers({ '/', 'r', 'e', 'v', 'i', 'e', 'w', ' ', 's', 't', 'a', 'g', 'e', '\27', '/', 'r', 'v', 's', 't', 'g' })
+    H.feed('<C-f>')
+    local found = vim.tbl_filter(function(l) return l:match('^ %S  ') end, seen[14].lines)
+    local text = table.concat(found, '\n')
+    H.ok(text:find('Stage the review notes', 1, true), 'in any order, ignoring case: ' .. text)
+    H.ok(text:find('review the staged changes', 1, true), 'in order: ' .. text)
+    H.ok(not text:find('commit staged', 1, true), 'not with one word alone: ' .. text)
+    H.ok(found[1]:find('review staged', 1, true), 'still the most used first: ' .. found[1])
+    H.ok(vim.iter(seen[20].lines):any(function(l) return l:find('no match', 1, true) end), '"rvstg" matches nothing')
+    answer(nil)
+end)
+
+H.test('in the filter, <C-w> takes back a word, <C-u> the lot', function()
+    H.reset(file)
+    prompt()
+    vim.cmd('stopinsert')
+    answers({ '/', 'r', 'e', 'v', ' ', 's', 't', ' ', '\23', '\23', 'x', ' ', 'y', '\21', '\27', '\27' })
+    H.feed('<C-f>')
+    H.eq(' /rev st \u{2581} ', seen[9].title, 'typed')
+    H.eq(' /rev \u{2581} ', seen[10].title, '<C-w>: the word and the space after it')
+    H.eq(' /\u{2581} ', seen[11].title, '<C-w> again: the word before')
+    H.eq(' /x y\u{2581} ', seen[14].title, 'typed again')
+    H.eq(' /\u{2581} ', seen[15].title, '<C-u>: the lot')
+    answer(nil)
+end)
+
+H.test('in the filter, <BS> edits, <Esc> clears, and <Esc> again closes', function()
+    H.reset(file)
+    prompt()
+    vim.cmd('stopinsert')
+    answers({ '/', 'z', 'q', 'x', '\8', '\8', '\8', 'r', 'e', 'v', '\27', '\27' })
+    H.feed('<C-f>')
+    H.ok(vim.iter(seen[5].lines):any(function(l) return l:find('no match', 1, true) end), 'nothing for zqx')
+    H.eq(' /\u{2581} ', seen[8].title, 'empty again, still typing')
+    H.ok(seen[11].lines[1]:find('review', 1, true), '"rev" finds review: ' .. seen[11].lines[1])
+    H.eq(' Frequent prompts / Foyer ', seen[12].title, '<Esc> cleared it')
+    H.ok(seen[12].footer:find('/: filter', 1, true), 'and the footer says so: ' .. seen[12].footer)
+    H.eq(12, #seen, 'the second <Esc> closed the popup')
+    H.eq({ '' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), 'nothing put in')
+    answer(nil)
+end)
+
 -- Open the picker from a draft of {lines}, the cursor at the end of it.
 local function pick_at_end(win_type, lines)
     H.reset(file)
