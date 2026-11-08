@@ -34,7 +34,7 @@ functions you want, for instance: >lua
     -- Pick a terminal by its key and write a prompt for it; from Visual
     -- mode the prompt carries the selected lines.
     vim.keymap.set({ 'n', 'v' }, '<leader>a', foyer.terminal_command,
-        { desc = 'Send command to a picked terminal' })
+        { desc = 'Prompt a picked terminal' })
     -- Edit the Visual selection in a floating buffer.
     vim.keymap.set('v', 'E', foyer.edit_selection)
     -- Any window, foyer's among them, to full screen and back.
@@ -114,8 +114,8 @@ picker_delay ~
 selection_max_lines ~
     A selection is sent with its lines up to this many, and as its location
     alone beyond, see |foyer-opts|. `0` never sends the lines. Defaults to
-    `40`. A buffer not yet written has no location to send instead, so a
-    longer one is copied to a temporary file, which the label names.
+    `40`. A buffer that is no file on disk has no location to send instead,
+    so a longer one is copied to a temporary file, which the label names.
 
 mention ~
     Whether `@` in a terminal's prompt lists the open files to mention, see
@@ -200,8 +200,8 @@ launch_info ~
 
     Any other key you add reaches the resolver too, say `ticket = 'JIRA-123'`.
     Passing a table yourself opts out of the capture entirely. In a buffer
-    with no file -- a terminal, a scratch buffer, one not written yet -- the
-    captured table is empty.
+    that is no file on disk -- a terminal, a scratch buffer, one not written
+    yet -- the captured table is empty.
 
 Command {opts} accepted by |foyer.terminal_command()| and
 |foyer.send_terminal_command()|:
@@ -243,14 +243,20 @@ unsaved edits can put out of step -- the label says so when they have. The
 path is absolute, so it resolves wherever the agent was started. A selection
 longer than `selection_max_lines` is sent as the label alone.
 
-A buffer not yet written has no file to point at, so its lines are all the
-agent gets: `Selected in my editor: lines 3-8 of a buffer with no file`, then
-the lines, and `[No Name]:3-8` in the title. Past `selection_max_lines` a
-label alone would point the agent at nothing, so the lines are copied to a
-file under |tempname()| and the label names it -- `..., copied whole to
-/tmp/.../3.lua` -- for the agent to read rather than a long paste for its input
-box to swallow. The file is yours alone and goes when Neovim exits. A terminal
-or scratch buffer ('buftype' set) sends no selection.
+What counts as a file is a file on disk, one the agent could open from the
+path: a help page does. A buffer that is none -- never written, or named but
+not saved yet, a scratch buffer, a terminal -- has no file to point at, so its
+lines are all the agent gets, and the label says what it was instead:
+`Selected in my editor: lines 3-8 of a buffer with no file`, `... of a
+terminal`, `... of the buffer notes.md, which is no file on disk`, with
+`[No Name]:3-8`, `[Terminal]:3-8` or `notes.md:3-8` in the title. So a failed
+command's output, selected in its terminal, goes to an agent with no copying.
+Past `selection_max_lines` a label alone would point the agent at nothing, so
+the lines are copied to a file under |tempname()| and the label names it --
+`..., copied whole to /tmp/.../3.lua` -- for the agent to read rather than a
+long paste for its input box to swallow. The file is yours alone and goes
+when Neovim exits. A selection in a terminal's own buffer, or
+in its prompt, is not sent to that terminal: it has those lines already.
 
 None of it sits in the command buffer, so the line stays yours to edit and to
 walk history with, and history remembers the prompt without a selection that
@@ -291,7 +297,7 @@ terminal_command({opts})
     A `scope = 'global'` terminal opens its prompt in the current window: >lua
         vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
             foyer.terminal_command({ key = 'F' })
-        end, { desc = 'opencode terminal' })
+        end, { desc = 'Prompt opencode' })
 <
                                                *foyer.send_terminal_command()*
 send_terminal_command({term_key}, {opts})
@@ -493,11 +499,12 @@ left; <Esc> clears the filter, and once there is none closes the list.
 
                                                                *foyer-mention*
 In the prompt for one of your `commands`, `@` at the start of a word lists the
-open files: the one you opened the prompt from first, at your cursor line,
-then the rest by when you last used them, each at its last change, then the
-files you used recently (|v:oldfiles|) in the same way. The menu shows ten at
-a time; typing after the `@` searches all of them by name, so a file further
-down is found as you type. While it is open:
+open files -- files on disk, help pages among them, as an agent can read --
+the one you opened the prompt from first, at your cursor line, then the rest
+by when you last used them, each at its last change, then the files you used
+recently (|v:oldfiles|) in the same way. The menu shows ten at a time; typing
+after the `@` searches all of them by name, so a file further down is found as
+you type. While it is open:
 
     <CR>       Put in `@src/parser.c:120`: the path as the agent resolves it,
                from the directory it was started in, or absolute for a

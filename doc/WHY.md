@@ -65,7 +65,8 @@ vim.keymap.set({ 'n', 'v' }, '<leader>a', require('foyer').terminal_command)
 Now press `<leader>a` and a letter: `c` for Claude Code, `o` for opencode. Pick
 a different letter and you're asking a different agent; none of them has to be
 running yet, because foyer starts the one you picked on first use. A real
-buffer opens, in a split beside your code, or a float if you prefer. Write as
+buffer opens, in a split beside your code, or in a float for an agent you give
+`win_type = 'float'`. Write as
 much as you like, across as many lines as you like, with every motion, text
 object, macro and plugin you already have. Press `<C-s>` in insert mode, or
 `<CR>` in normal mode, and the whole thing reaches that agent as **one
@@ -114,6 +115,10 @@ location only, so a slip of the finger doesn't paste a whole file. The window
 title shows `src/parser.c:118-131` before you send, so you always know what's
 going along. If you type nothing, nothing is sent: a selection alone asks the
 agent nothing.
+
+It works from a terminal too. Select the error a build just printed in your
+shell's terminal, press `<leader>a`, pick the agent, and ask *"why does this
+fail?"*: the output goes along as it is, labelled as a terminal's.
 
 Already writing the prompt when you realise it should point at code in another
 file? Type `@`: the open files pop up, along with the ones you used recently,
@@ -177,6 +182,10 @@ require('foyer').setup({
 - **The agent can depend on the project.** With an entry that is a function,
   `a` means whatever agent that repo should get, so your fingers learn one key
   instead of a policy.
+- **Hop between them in place.** Going back and forth between this project's
+  shell and its agent? `<C-t>` in a terminal shows the one you used before it,
+  in the same window, and a half-written prompt for either is kept for when
+  you come back.
 
 ---
 
@@ -220,13 +229,30 @@ the agent of the `api` project.
 blunt tool that doesn't survive a restart.
 
 **With foyer.** Each terminal has its own history, saved across Neovim
-sessions. `<C-p>`/`<C-n>` walk it. Type a few words first, and only the entries
-containing them come up, with the match highlighted. Your zsh history and your
-agent history stay separate. And the prompts you send every day — "review the
-staged changes", "commit them" — don't sink under the one-offs: `<C-f>` lists
-history by how often and how recently you used each one, each behind a
-one-key label. Type the label to drop the prompt in at the cursor, or type it
-with Shift to make it the whole draft.
+sessions. `<Up>` walks it, latest first, in normal mode and in insert mode,
+where in a draft of several lines it moves up a line at a time first, as a
+shell's does. Type something first, and only the entries containing it come up,
+with the match highlighted. Your zsh history and your agent history stay
+separate.
+
+And the prompts you send every day — "review the staged changes", "commit
+them" — don't sink under the one-offs: `<C-f>` lists history by how often and
+how recently you used each one, each behind a one-key label. Type the label to
+drop the prompt in at the cursor, or type it with Shift to make it the whole
+draft. Press `/` in the list to search all of it by words, in any order.
+
+The ones you know you'll want, pin. Prompts of a terminal's own sit on top of
+its `<C-f>` list, in the order you wrote them, each always behind the same
+label:
+
+```lua
+prompts = {
+    o = {
+        'run the tests and summarise the failures',
+        'review the staged changes',
+    },
+},
+```
 
 ---
 
@@ -303,6 +329,6 @@ Being clear about this saves you an afternoon:
 Then try it:
 
 1. Open a file in a git repo and press `<leader>a`, then `o`.
-2. Write a multi-line prompt and send it with `<C-s>`.
+2. Press `i`, write a multi-line prompt, and send it with `<C-s>`.
 3. Select a function, press `<leader>a c` to ask Claude Code this time, and
    type *"what does this do?"*.

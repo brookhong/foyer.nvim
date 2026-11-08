@@ -1186,6 +1186,10 @@ function M.send_terminal_command(term_key, opts)
         return
     end
 
+    -- A selection made in this very terminal, or in its prompt, is no news to
+    -- it.
+    context.drop_own_selection(opts, target_buf)
+
     local command = opts.command
     local interactive = opts.interactive or opts.selection
     if command == nil or command == "" then

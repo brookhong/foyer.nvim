@@ -26,14 +26,22 @@ local function relative_to(root, path)
     return path:sub(#prefix + 1)
 end
 
+-- Whether {name} is a file on disk: something an agent told the path can
+-- open and read. A terminal's term:// URI is not, nor a scratch buffer's name,
+-- a plugin's foo://, a directory, or a buffer whose file has not been written
+-- yet; a help page is.
+local function on_disk(name)
+    if name == '' then return false end
+    local stat = vim.uv.fs_stat(name)
+    return stat ~= nil and stat.type == 'file'
+end
+
 -- The file {buf} holds, named the way launch_info names it: `current_file`
 -- relative to `project_root`, or absolute with no `project_root`. Nil for a
--- buffer with no file worth reporting.
+-- buffer that is no file on disk: its name would point an agent at nothing.
 local function file_info(buf)
-    -- A terminal or scratch buffer has no file worth reporting: its name would
-    -- be a term:// URI.
     local name = vim.api.nvim_buf_get_name(buf)
-    if vim.bo[buf].buftype ~= '' or name == '' then return nil end
+    if not on_disk(name) then return nil end
     -- The buffer name rather than expand('%:p'): that one leaves a symlinked
     -- path unresolved while vim.fs.root() resolves it, so the two would never
     -- match. normalize() then settles the separators, which disagree on
@@ -59,8 +67,8 @@ local function visual_lines()
 end
 
 -- What the user is looking at, in the conventional launch_info shape.
--- Empty for a buffer with no file: a terminal, a scratch buffer, one never
--- written.
+-- Empty for a buffer that is no file on disk: a terminal, a scratch buffer,
+-- one never written.
 local function launch_info()
     local info = file_info(0)
     if not info then return {} end
@@ -71,26 +79,36 @@ local function launch_info()
     return info
 end
 
--- A buffer that would be a file once written: no name yet, and nothing that
--- makes it something else -- a terminal, a scratch or help buffer.
-local function is_unnamed(buf)
-    return vim.bo[buf].buftype == '' and vim.api.nvim_buf_get_name(buf) == ''
+-- What {buf} is, said for a label, when it is no file on disk: what the
+-- agent reads in place of a path, and the window title in place of a file
+-- name.
+local function buffer_kind(buf)
+    local name = vim.api.nvim_buf_get_name(buf)
+    if vim.b[buf].terminal_job_id then
+        return { label = 'a terminal', title = '[Terminal]' }
+    end
+    if name == '' then
+        return { label = 'a buffer with no file', title = '[No Name]' }
+    end
+    local shown = vim.fn.fnamemodify(name, ':~:.')
+    return { label = ('the buffer %s, which is no file on disk'):format(shown), title = shown }
 end
 
 -- Lines {first}..{last} of {buf}, ready for selection_block(): as the buffer
 -- has them now, unsaved edits and all, since that is what the user is pointing
--- at, whatever the disk says. A buffer never written has no file to name, but
--- its lines are all the more worth sending: there is nowhere else to read
--- them. Nil for a terminal, a scratch buffer and the like.
+-- at, whatever the disk says. A buffer that is no file on disk -- never
+-- written, a terminal, a scratch buffer -- has no path to name, but its lines
+-- are all the more worth sending: there is nowhere else to read them.
+-- `term` is the terminal the buffer belongs to, if it is one of foyer's or a
+-- prompt for one: a selection is no news to that terminal itself.
 local function buffer_selection(buf, first, last)
-    local info = file_info(buf)
-    if not info then
-        if not is_unnamed(buf) then return nil end
-        info = {}
-    end
+    -- A number to compare with a terminal's, not 0 for the current one.
+    if buf == 0 then buf = vim.api.nvim_get_current_buf() end
+    local info = file_info(buf) or { kind = buffer_kind(buf) }
     info.start_line, info.end_line = first, last
     return {
         info = info,
+        term = vim.b[buf].foyer_terminal and buf or vim.b[buf].foyer_term,
         lines = vim.api.nvim_buf_get_lines(buf, first - 1, last, false),
         -- A buffer loaded without autocommands has no 'filetype' set: ask
         -- what it would be, rather than set it and start its plugins.
@@ -101,11 +119,11 @@ local function buffer_selection(buf, first, last)
 end
 
 -- The selected range in the project's own terms, `src/main.c:30-36`, or
--- `[No Name]:30-36` for a buffer never written: short enough for a window
--- title, which is where the user reads it.
+-- `[No Name]:30-36`, `[Terminal]:30-36` for a buffer that is no file: short
+-- enough for a window title, which is where the user reads it.
 local function selection_ref(info)
     if not info.start_line then return nil end
-    local file = info.current_file or '[No Name]'
+    local file = info.current_file or (info.kind and info.kind.title) or '[No Name]'
     if info.end_line == info.start_line then
         return ('%s:%d'):format(file, info.start_line)
     end
@@ -140,11 +158,12 @@ end
 -- out, so a selection the size of a file is not pasted whole; the label alone
 -- still says where to look.
 --
--- A buffer never written has no file to name: the label says so, so the
--- agent does not go looking for one. Past `selection_max_lines` a label alone
--- would point it at nothing, so the lines are copied to a file of their own,
--- which the label names: a long paste is what some agents' input boxes take
--- worst. Should the copy fail, they go inline after all.
+-- A buffer that is no file on disk has no path to name: the label says what
+-- it is instead, so the agent does not go looking for one. Past
+-- `selection_max_lines` a label alone would point it at nothing, so the lines
+-- are copied to a file of their own, which the label names: a long paste is
+-- what some agents' input boxes take worst. Should the copy fail, they go
+-- inline after all.
 local function selection_block(sel)
     local info = sel.info
     local where = info.end_line == info.start_line
@@ -159,7 +178,8 @@ local function selection_block(sel)
         -- it.
         if sel.modified then label = label .. ' (unsaved; the file on disk differs)' end
     else
-        label = ('Selected in my editor: %s of a buffer with no file'):format(where)
+        local kind = info.kind and info.kind.label or 'a buffer with no file'
+        label = ('Selected in my editor: %s of %s'):format(where, kind)
     end
 
     local max = config.selection_max_lines or 0
@@ -203,6 +223,17 @@ local function strip_selections(text)
     return vim.trim(table.concat(out, '\n'))
 end
 
+-- Forget the selection captured into {opts} when it was made in {term_buf}
+-- itself, or in a prompt for it: the terminal has those lines already, and
+-- sending them back would only echo them.
+local function drop_own_selection(opts, term_buf)
+    local sel = captured_selection[opts]
+    if sel and sel.term == term_buf then
+        captured_selection[opts] = nil
+        opts.selection = nil
+    end
+end
+
 -- What a send appends below the prompt: the captured selection with its text,
 -- or a `selection` the caller gave, which is theirs and goes as given.
 local function selection_appendix(opts)
@@ -220,13 +251,11 @@ local function capture(opts)
     if opts.interactive or opts.command == nil or opts.command == '' then
         if opts.selection == nil then
             -- From the buffer rather than launch_info, which is empty for one
-            -- never written: that has no file to name, yet its lines are all
+            -- that is no file: that has no path to name, yet its lines are all
             -- the more worth sending.
             local sel = buffer_selection(0, visual_lines())
-            if sel then
-                opts.selection = selection_ref(sel.info)
-                captured_selection[opts] = sel
-            end
+            opts.selection = selection_ref(sel.info)
+            captured_selection[opts] = sel
         end
         -- The window opened next is no place to still be in Visual mode.
         vim.cmd('normal! \27')
@@ -241,6 +270,7 @@ M.buffer_selection = buffer_selection
 M.selection_ref = selection_ref
 M.selection_block = selection_block
 M.selection_appendix = selection_appendix
+M.drop_own_selection = drop_own_selection
 M.capture = capture
 
 return M

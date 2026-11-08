@@ -79,10 +79,11 @@ require('foyer').setup({
         a = { 'review the staged changes', 'explain this error' },
     },
 
-    -- Any key foyer maps, by action; false for none.
+    -- Any key foyer maps, by action; false for none. All of them, with
+    -- their defaults: :help foyer-setup.
     keys = {
-        prompt = { send = { n = '<CR>', i = '<C-s>' } },
-        terminal = { cd_root = false },
+        prompt = { send = { n = '<CR>', i = '<C-j>' } },   -- send with Ctrl-J in insert mode
+        terminal = { cd_root = false },                    -- leave <C-r> alone in terminals
     },
 })
 ```
@@ -97,7 +98,7 @@ local foyer = require('foyer')
 -- Pick a terminal by its key and write a prompt for it. From visual mode the
 -- prompt carries the selected lines, labelled with their file and range.
 vim.keymap.set({ 'n', 'v' }, '<leader>a', foyer.terminal_command,
-    { desc = 'Send command to a picked terminal' })
+    { desc = 'Prompt a picked terminal' })
 
 -- Edit the current visual selection in a floating buffer.
 vim.keymap.set('v', 'E', foyer.edit_selection, { desc = 'Edit selection' })

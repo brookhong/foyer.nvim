@@ -134,16 +134,74 @@ H.test('if the copy cannot be written, the lines go inline', function()
         .. '```lua\na\nb\nc\nd\n```', sent, 'inline')
 end)
 
-H.test('a selection in a scratch buffer still goes nowhere', function()
+-- Select with {keys} in the current buffer, as it is, prompt q and send.
+local function ask_here(keys)
+    H.press(function() foyer.terminal_command({ key = 'q' }) end, keys)
+    local title = H.state().title
+    H.send('what is this?')
+    local sent = (H.last_text() or ''):gsub('\27%[20[01]~', ''):gsub('\r$', '')
+    vim.cmd('stopinsert')
+    return sent, title
+end
+
+H.test('a help page is a file: its path goes, with its lines', function()
+    H.reset()
+    vim.cmd('help foyer-setup | only')
+    local help = vim.api.nvim_buf_get_name(0)
+    local line = vim.fn.line('.')
+    local text = vim.fn.getline(line)
+    local sent = ask_here(line .. 'GV')
+    H.ok(sent:find(('Selected in my editor: %s, line %d\n```help\n%s\n```'):format(vim.fs.normalize(help), line, text),
+        1, true), sent)
+end)
+
+H.test('a scratch buffer\'s lines go, said to be no file', function()
     H.reset()
     vim.cmd('enew')
     vim.bo.buftype = 'nofile'
+    vim.api.nvim_buf_set_name(0, 'Scratch')
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'scratch' })
-    H.press(function() foyer.terminal_command({ key = 'q' }) end, '1GV')
-    H.ok(not H.state().title:find('+', 1, true), 'nothing advertised: ' .. H.state().title)
-    H.send('what is this?')
-    H.eq('what is this?\r', H.last_text(), 'the prompt alone')
+    local sent, title = ask_here('1GV')
+    H.eq('what is this?\n\nSelected in my editor: line 1 of the buffer Scratch, which is no file on disk\n'
+        .. '```\nscratch\n```', sent, 'sent')
+    H.ok(title:find('+ Scratch:1', 1, true), 'the frame: ' .. title)
+end)
+
+H.test('a file not written yet goes as its lines, not a path to nothing', function()
+    H.reset()
+    vim.cmd('edit not-written-yet.lua')
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'local y = 2' })
+    local sent = ask_here('1GV')
+    H.eq('what is this?\n\nSelected in my editor: line 1 of the buffer not-written-yet.lua, which is no file on disk\n'
+        .. '```lua\nlocal y = 2\n```', sent, 'sent')
+    vim.cmd('bwipeout!')
+end)
+
+H.test('a terminal\'s output goes to another terminal, and not back to itself', function()
+    H.reset()
+    vim.cmd('terminal printf "make: *** [all] Error 1"')
+    vim.wait(1000, function() return vim.fn.getline(1):find('Error', 1, true) ~= nil end)
     vim.cmd('stopinsert')
+    local sent, title = ask_here('1GV')
+    H.ok(sent:find('Selected in my editor: line 1 of a terminal\n```\nmake: *** [all] Error 1\n```', 1, true), sent)
+    H.ok(title:find('+ [Terminal]:1', 1, true), 'the frame: ' .. title)
+
+    -- From one of foyer's terminals to another: r's output, sent to q.
+    foyer.setup({ commands = { r = { 'sh', [[-c "echo 'r says: build failed'; cat >/dev/null"]] } } })
+    H.reset()
+    H.press(function() foyer.terminal_command({ key = 'r', switch = true }) end)
+    vim.wait(2000, function() return vim.fn.getline(1):find('build failed', 1, true) ~= nil end)
+    vim.cmd('stopinsert')
+    local across = ask_here('1GV')
+    H.ok(across:find('Selected in my editor: line 1 of a terminal\n```\nr says: build failed\n```', 1, true),
+        'another of foyer\'s terminals: ' .. across)
+
+    -- In q's own terminal, a selection is no news to q.
+    H.reset()
+    H.press(function() foyer.terminal_command({ key = 'q', switch = true }) end)
+    vim.cmd('stopinsert')
+    local own = ask_here('1GV')
+    H.eq('what is this?', own, 'the prompt alone')
 end)
 
 H.finish()
