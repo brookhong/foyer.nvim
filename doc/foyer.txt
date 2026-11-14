@@ -211,7 +211,8 @@ a `selection` you pass yourself is appended as given.
 
 Foyer reuses the split or float it already has open rather than opening
 another. Launching a different terminal hands it to that terminal's prompt;
-each terminal's draft is kept and comes back with it. A terminal still
+each terminal's draft is kept and comes back with it. A terminal's window
+in another tab page moves to this one, draft and all. A terminal still
 producing output is shown instead of a prompt, see |foyer.is_idle()|, and a
 selection is then dropped, with a notice.
 

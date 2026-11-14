@@ -104,6 +104,54 @@ local function window_term(win_id)
     if vim.bo[shown].buftype == 'terminal' then return shown end
 end
 
+-- Whether {win} is one of foyer's: a split or float it opened, or the user's
+-- window it borrowed and owes a buffer back.
+local function is_foyer_window(win)
+    return vim.w[win].foyer_own == true or vim.w[win].foyer_return_buf ~= nil
+end
+
+-- foyer's window for {term}, showing it or a prompt for it, in another tab
+-- page -- none if this one has one already.
+local function window_elsewhere(term)
+    local here = vim.api.nvim_get_current_tabpage()
+    local found
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if is_foyer_window(win) and window_term(win) == term then
+            if vim.api.nvim_win_get_tabpage(win) == here then return nil end
+            found = found or win
+        end
+    end
+    return found
+end
+
+-- Give up {win}, keeping whatever it shows: the buffer a borrowed window
+-- showed goes back in, and one of foyer's closes -- unless it is the last of
+-- its tab page, which closing would take along, when it is left empty and
+-- the user's.
+local function release(win)
+    clear_foyer_matches(win)
+    vim.w[win].foyer_prompt = nil
+    local back = vim.w[win].foyer_return_buf
+    if back ~= nil then
+        vim.w[win].foyer_return_buf = nil
+        if vim.api.nvim_buf_is_valid(back) then
+            vim.api.nvim_win_set_buf(win, back)
+        else
+            vim.api.nvim_win_call(win, function() vim.cmd('enew') end)
+        end
+        return
+    end
+    local others = vim.tbl_filter(function(w)
+        return w ~= win and vim.api.nvim_win_get_config(w).relative == ''
+    end, vim.api.nvim_tabpage_list_wins(vim.api.nvim_win_get_tabpage(win)))
+    if vim.api.nvim_win_get_config(win).relative ~= '' or #others > 0 then
+        vim.api.nvim_win_close(win, true)
+    else
+        vim.w[win].foyer_own = nil
+        vim.api.nvim_win_call(win, function() vim.cmd('enew') end)
+    end
+end
+
 -- Prompts set aside in a window when another terminal took it, by window and
 -- then by terminal buffer: the draft in one is the user's, and comes back
 -- when its terminal is launched in that window again.
@@ -125,6 +173,26 @@ local function unpark_prompt(win_id, term)
     parked[win_id][term] = nil
     if vim.api.nvim_buf_is_valid(prompt) and #vim.fn.win_findbuf(prompt) == 0 then
         return prompt
+    end
+end
+
+-- Take the prompts parked in {win} out of it, for another window to adopt.
+local function take_parked(win)
+    local carried = parked[win]
+    parked[win] = nil
+    return carried
+end
+
+-- Park {carried} in {win}, but for a terminal with a prompt parked there
+-- already: that one stays, and the one carried in is wiped, unless shown.
+local function adopt_parked(win, carried)
+    for term, prompt in pairs(carried or {}) do
+        parked[win] = parked[win] or {}
+        if parked[win][term] == nil then
+            parked[win][term] = prompt
+        elseif vim.api.nvim_buf_is_valid(prompt) and #vim.fn.win_findbuf(prompt) == 0 then
+            vim.api.nvim_buf_delete(prompt, { force = true })
+        end
     end
 end
 
@@ -156,11 +224,16 @@ end
 -- command buffer, so a caller can re-point that draft at what this send
 -- carries instead of silently handing back the state of the send before it.
 --
--- {opts.term} is the terminal the window is for. A split or a float of
--- foyer's already open in this tab page is reused rather than stacked: for the
--- same terminal, a prompt in it is handed back as it is; for another one, the
--- old prompt is parked, draft and all, and the window given to the new
--- terminal's own prompt -- the one parked there for it before, or a fresh one.
+-- {opts.term} is the terminal the window is for. A window of foyer's showing
+-- it, or its prompt, in another tab page -- and none in this one -- is moved
+-- here: given up there, and its prompt, draft and all, shown here, with the
+-- prompts parked in it, so that one terminal is not foyer's in two tab
+-- pages, each window's keys taking the other for its own. A split or a float
+-- of foyer's already open in this tab page is reused rather than stacked:
+-- for the same terminal, a prompt in it is handed back as it is; for another
+-- one, the old prompt is parked, draft and all, and the window given to the
+-- new terminal's own prompt -- the one parked there for it before, or a
+-- fresh one.
 -- {opts.float} overrides the config a float is opened with.
 local function create_window(type, title, on_ready, opts)
     opts = opts or {}
@@ -172,6 +245,19 @@ local function create_window(type, title, on_ready, opts)
     -- Only in this tab page: one elsewhere is left where it is.
     if reuse and vim.api.nvim_win_get_tabpage(reuse) ~= vim.api.nvim_get_current_tabpage() then
         reuse = nil
+    end
+    -- The prompt of the terminal's window in another tab page, brought here.
+    local moved, carried
+    local existing = term and window_elsewhere(term)
+    if existing then
+        moved = window_prompt(existing)
+        -- Before it closes, which would wipe them.
+        carried = take_parked(existing)
+        release(existing)
+        if not (moved and vim.api.nvim_buf_is_valid(moved) and vim.b[moved].foyer_term == term
+            and #vim.fn.win_findbuf(moved) == 0) then
+            moved = nil
+        end
     end
     -- Still foyer's only while it shows a prompt or a terminal of ours. A
     -- file the user opened in it, or kept it for with :only, makes it theirs:
@@ -215,10 +301,15 @@ local function create_window(type, title, on_ready, opts)
                 park_prompt(reuse, saved)
             end
         end
-        back = unpark_prompt(reuse, term)
+        -- One parked here for this terminal gives way to the one moved in,
+        -- the one in use.
+        local parked_here = unpark_prompt(reuse, term)
+        if moved and parked_here then vim.api.nvim_buf_delete(parked_here, { force = true }) end
+        back = moved or parked_here
     end
 
     if back then
+        adopt_parked(reuse, carried)
         vim.api.nvim_set_current_win(reuse)
         if vim.api.nvim_win_get_buf(reuse) ~= back then
             vim.api.nvim_win_set_buf(reuse, back)
@@ -228,7 +319,7 @@ local function create_window(type, title, on_ready, opts)
         return
     end
 
-    local bufnr = new_cmd_buf()
+    local bufnr = moved or new_cmd_buf()
     local win_id
 
     if reuse then
@@ -279,8 +370,9 @@ local function create_window(type, title, on_ready, opts)
     vim.wo[win_id][0].relativenumber = true
     vim.wo[win_id][0].cursorline = true
 
+    adopt_parked(win_id, carried)
     if on_ready then
-        on_ready(bufnr, win_id)
+        on_ready(bufnr, win_id, moved ~= nil)
     end
 
     -- Only a split and a float for a terminal are tracked: they are the ones
@@ -312,6 +404,7 @@ local function tracked_kind(win_id)
 end
 
 M.tracked_kind = tracked_kind
+M.is_foyer_window = is_foyer_window
 M.clear_foyer_matches = clear_foyer_matches
 M.dismiss = dismiss
 M.set_window_title = set_window_title

@@ -892,7 +892,20 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
     -- Set for this buffer in this window only, so a borrowed window does not
     -- keep it once its own buffer is back.
     vim.wo[win_id][0].relativenumber = true
-    map(term_bufnr, 'terminal', 'close', function() dismiss(win_id, prev_buf) end)
+    -- Put away the window it is pressed in, and the prompt behind it: a
+    -- terminal is one buffer however many windows show it, so neither is
+    -- the one it was first shown in. In a window that is not foyer's, the key
+    -- is Vim's again.
+    map(term_bufnr, 'terminal', 'close', function(_, lhs)
+        return function()
+            local win = vim.api.nvim_get_current_win()
+            if window.is_foyer_window(win) then
+                dismiss(win, vim.w[win].foyer_prompt)
+            else
+                vim.api.nvim_feedkeys(vim.v.count1 .. vim.keycode(lhs), 'n', false)
+            end
+        end
+    end, { build = true })
 
     setup_terminal_keymaps(term_bufnr)
 
@@ -936,18 +949,21 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
     if win_id == vim.api.nvim_get_current_win() then vim.cmd('stopinsert') end
 end
 
-local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
+-- The prompt's keys act on the window they are pressed in, the one showing
+-- it: a prompt moved to another tab page's window is no longer in the one it
+-- opened in. {on_enter} is called with that window.
+local function init_command_buf_shared(bufnr, lines, on_enter)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
     map(bufnr, 'prompt', 'close_if_empty', function()
         if is_blank(buffer_text(bufnr)) then
-            dismiss(win_id, bufnr)
+            dismiss(vim.api.nvim_get_current_win(), bufnr)
         end
     end)
 
-    map(bufnr, 'prompt', 'close', function() dismiss(win_id, bufnr) end)
+    map(bufnr, 'prompt', 'close', function() dismiss(vim.api.nvim_get_current_win(), bufnr) end)
 
-    map(bufnr, 'prompt', 'send', on_enter)
+    map(bufnr, 'prompt', 'send', function() on_enter(vim.api.nvim_get_current_win()) end)
 
     -- The terminal this prompt is for, in this window, where <C-o> comes back
     -- from: to look at what it has said before writing to it. Only that: the
@@ -1125,7 +1141,7 @@ end
 -- more.
 local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
     opts = opts or {}
-    init_command_buf_shared(bufnr, win_id, lines, function()
+    init_command_buf_shared(bufnr, lines, function(win_id)
         local cmd = buffer_text(bufnr)
         log_command(cmd, opts.term)
         local new_buf = on_command_input(cmd)
@@ -1643,7 +1659,7 @@ function M.edit_selection()
     local height = math.min(math.max(#lines, math.ceil(#adata / width) + 2), vim.o.lines - 4)
     create_window('float', 'Edit selection', function(bufnr, win_id)
         vim.bo[bufnr].filetype = filetype
-        init_command_buf_shared(bufnr, win_id, lines, function()
+        init_command_buf_shared(bufnr, lines, function()
             vim.cmd('normal! gg0' .. mode .. 'G$"ay')
             dismiss(win_id, bufnr)
             vim.cmd('normal! gv"ap')
