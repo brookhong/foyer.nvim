@@ -10,10 +10,9 @@ CONTENTS                                                      *foyer-contents*
     2. Requirements ................ |foyer-requirements|
     3. Setup ....................... |foyer-setup|
     4. API ......................... |foyer-api|
-    5. Agent context ............... |foyer-context|
-    6. Mappings .................... |foyer-mappings|
-    7. Highlights .................. |foyer-highlights|
-    8. Limitations ................. |foyer-limitations|
+    5. Mappings .................... |foyer-mappings|
+    6. Highlights .................. |foyer-highlights|
+    7. Limitations ................. |foyer-limitations|
 
 ==============================================================================
 1. INTRODUCTION                                           *foyer-introduction*
@@ -63,8 +62,9 @@ commands ~
     - a string: the command to run, e.g. `'zsh'`
     - a table `{ command, arguments }`; the first element doubles as the
       display name in the window title
-    - a function `f(project_root, launch_info)` returning either of the above.
-      It is called every time, so the terminal can depend on the project: >lua
+    - a function `f(project_root, launch_info)` returning either of the
+      above, called every time, so the terminal can depend on the
+      project: >lua
         e = function(project_root, launch_info)
             if project_root:find('kernel', 1, true) then
                 return { 'bash', '--norc' }
@@ -72,22 +72,15 @@ commands ~
             return 'zsh'
         end,
 <
-
     A table entry may also name, alongside its two elements:
 
-    cwd     Directory the terminal is spawned in, instead of the project root.
-    win_type
-            `'float'` opens the terminal's prompt in a float rather than a
-            split beside your code, unless a call names a `win_type` of its
-            own, see |foyer-opts|. Ignored with `scope = 'global'`.
-    scope   `'global'` keeps one terminal for the whole session, wherever you
-            are. Anything else, or nothing, is the default: one terminal per
-            project root. A global terminal's prompt takes the current window
-            rather than a split or a float, and the terminal takes it in
-            turn once you send;
-            closing either hands the window back to the buffer it showed.
-            Use it for an agent you want a single long conversation with,
-            apart from any project: >lua
+    cwd       Directory the terminal is spawned in, instead of the project
+              root.
+    win_type  `'float'` opens its prompt in a float; the default is a split
+              beside your code. A call's own `win_type` wins.
+    scope     `'global'` keeps one terminal for the whole session instead of
+              one per project. Its prompt takes the current window, and
+              closing it hands the window back. >lua
         commands = {
             z = { 'zsh', win_type = 'float' },
             a = { 'opencode', '-c' },
@@ -96,40 +89,33 @@ commands ~
         }
 <
 root_markers ~
-    List of directory markers used to locate the project root that scopes
-    terminals, as accepted by |vim.fs.root()|. Defaults to
-    `vim.g.root_markers`, then `{ '.git' }`.
+    Directory markers locating the project root, as |vim.fs.root()| takes
+    them. Defaults to `vim.g.root_markers`, then `{ '.git' }`.
 
 bracketed_paste ~
     Whether a multi-line send is wrapped in bracketed paste, see
-    |foyer-limitations|. Turn it off for a terminal program that does not
-    understand the escapes. Defaults to `true`.
+    |foyer-limitations|. Defaults to `true`.
 
 picker_delay ~
     Milliseconds |foyer.terminal_command()| waits for a terminal key before
-    showing its picker. A key typed within it is taken with nothing drawn, so
-    a mapping run straight through to the key does not flash the popup.
-    Defaults to `500`.
+    showing its picker; a key typed within it shows none. Defaults to `500`.
 
 selection_max_lines ~
-    A selection is sent with its lines up to this many, and as its location
+    A selection is sent with its lines up to this many, and as its label
     alone beyond, see |foyer-opts|. `0` never sends the lines. Defaults to
-    `40`. A buffer that is no file on disk has no location to send instead,
-    so a longer one is copied to a temporary file, which the label names.
+    `40`.
 
 mention ~
-    Whether `@` in a terminal's prompt lists the open files to mention, see
-    |foyer-mention|. Defaults to `true`.
+    Whether `@` in a prompt lists files to mention, see |foyer-mention|.
+    Defaults to `true`.
 
 keys ~
     The keys foyer maps in its own buffers, by action: `prompt` for the
     command buffer, `terminal` for a terminal foyer started, see
-    |foyer-mappings| for what each does. Only the actions named change. An
-    action takes a key or a list of keys, put in the modes it has by
-    default; a table by mode, naming the modes itself; or `false`, for no
-    key. A list replaces the default list rather than adding to it. Keys
-    are read as each prompt or terminal is set up, so calling |foyer.setup()|
-    again leaves the ones already open as they were. The defaults: >lua
+    |foyer-mappings|. Only the actions named change. An action takes a key or
+    a list of keys, put in the modes it has by default; a table by mode,
+    naming the modes itself; or `false`, for no key. A list replaces the
+    default list. The defaults: >lua
         keys = {
             prompt = {
                 send = { n = '<CR>', i = '<C-s>' },
@@ -148,75 +134,52 @@ keys ~
             },
         }
 <
-
 prompts ~
-    Prompts of your own, by `commands` key: a list of strings, each listed
-    first in that terminal's <C-f> picker, in the order given, see
-    |foyer-history|. A list given replaces the one before. Defaults to none.
-    >lua
+    Prompts of your own, by `commands` key, listed first in that terminal's
+    <C-f> picker, in the order given, see |foyer-history|. Defaults to
+    none. >lua
         prompts = {
             a = { 'review the staged changes', 'explain this error' },
         }
 <
-
 jump ~
     For |foyer.jump()|: `characters`, the keys its hint labels are made of
-    (default `'asdfgqwertzxcvb'`), which also label the prompts
-    |foyer-history| lists; `backdrop`, the 'winblend' of the backdrop
-    dimming the editor behind it, or `false` for none (default `60`); and
-    `fallback`, a function for a key that is no label (default: Telescope's
-    oldfiles if installed, else |vim.ui.select()| over |v:oldfiles|).
+    (default `'asdfgqwertzxcvb'`), which also label the prompts <C-f> lists;
+    `backdrop`, the 'winblend' of the backdrop behind it, or `false` for none
+    (default `60`); and `fallback`, a function for a key that is no label
+    (default: Telescope's oldfiles if installed, else |vim.ui.select()| over
+    |v:oldfiles|).
 
-Example: >lua
-    require('foyer').setup({
-        commands = {
-            z = 'zsh',
-            g = 'gdb',
-            a = { 'opencode', '-c' },
-        },
-    })
-<
                                                                   *foyer-opts*
                                                            *foyer.launch_info*
 launch_info ~
-    The context a prompt was composed with. |foyer.terminal_command()| and
-    |foyer.send_terminal_command()| capture it
-    themselves, so a mapping does no bookkeeping. Passing one explicitly
-    overrides the capture. It reaches the `commands` resolver
-    untouched -- the plugin never inspects it -- so a function there can pick
-    the terminal by it. The shape is: >lua
+    The context a prompt was composed with, captured by
+    |foyer.terminal_command()| and |foyer.send_terminal_command()| and passed
+    to a `commands` function. Passing one yourself skips the capture. >lua
         {
             project_root = '/repo',
             current_file = 'src/main.c',   -- relative to project_root
             current_line = 88,
-            start_line = 30,  -- visual mode only, the lower line number
-            end_line = 36,    -- visual mode only, the higher line number
+            start_line = 30,  -- visual mode only
+            end_line = 36,    -- visual mode only
         }
 <
-    `current_file` is named the way the project names it, not the way your
-    filesystem does. The two keys always travel together: when there is no
-    |foyer-setup| root to name the file against, `project_root` is absent and
-    `current_file` is absolute instead.
-
-    Any other key you add reaches the resolver too, say `ticket = 'JIRA-123'`.
-    Passing a table yourself opts out of the capture entirely. In a buffer
-    that is no file on disk -- a terminal, a scratch buffer, one not written
-    yet -- the captured table is empty.
+    With no project root, `project_root` is absent and `current_file` is
+    absolute. In a buffer that is no file on disk the table is empty. Any
+    other key you add reaches the function too.
 
 Command {opts} accepted by |foyer.terminal_command()| and
 |foyer.send_terminal_command()|:
 
     command       Send this text instead of opening a command buffer.
-    interactive   Force the command buffer open even when `command` is set;
-                  `command` then seeds the buffer.
+    interactive   Open the command buffer even with `command` set, which then
+                  seeds it.
     selection     Text appended to the prompt as it is sent. Set for you
-                  when the send starts in Visual mode. See below.
-    win_type      `'float'` for a float; otherwise a split beside your
-                  code, on the right. Given, it wins over the terminal's
-                  own `win_type`; not given, that is used, see
-                  |foyer-setup|. Ignored for a `scope = 'global'` terminal.
-    auto_start    Spawn the terminal if it does not exist yet. The send
-                  waits for it to start, see |foyer-limitations|.
+                  when the send starts in Visual mode, see below.
+    win_type      `'float'` for a float; otherwise a split. Wins over the
+                  terminal's own `win_type`; ignored for a global terminal.
+    auto_start    Spawn the terminal if it does not exist yet, see
+                  |foyer-limitations|.
     launch_info   See |foyer.launch_info|.
 
 |foyer.terminal_command()| also accepts:
@@ -225,10 +188,9 @@ Command {opts} accepted by |foyer.terminal_command()| and
     switch        Show the terminal in the current window rather than opening
                   a prompt for it, and return its buffer.
 
-Starting from Visual mode attaches the selection. The command buffer opens
-empty and in Insert mode, with the selection's place shown in its title --
-`src/main.c:30-36` -- and the selection joins below the prompt, after a blank
-line, as it is sent: >
+Starting from Visual mode attaches the selection. The prompt opens with the
+selection's place in its title -- `src/main.c:30-36` -- and the selection is
+added below what you write as it is sent: >
     what does this do?
 
     Selected in my editor: /repo/src/main.c, lines 30-36
@@ -236,49 +198,18 @@ line, as it is sent: >
     ...the selected lines, as the buffer has them...
     ```
 <
-The lines go with it because a bare `src/main.c:30` reads to an agent as a
-location, and it reads the lines around one and guesses which was meant; and
-the numbers are the buffer's, while the agent reads the file on disk, which
-unsaved edits can put out of step -- the label says so when they have. The
-path is absolute, so it resolves wherever the agent was started. A selection
-longer than `selection_max_lines` is sent as the label alone.
+The label says when the buffer has unsaved changes. Past
+`selection_max_lines` only the label is sent. A buffer that is no file on
+disk -- unnamed, not saved yet, a scratch buffer, a terminal -- sends its
+lines, labelled for what it is, and past `selection_max_lines` a temporary
+file holding them, which the label names. A selection alone sends nothing;
+a `selection` you pass yourself is appended as given.
 
-What counts as a file is a file on disk, one the agent could open from the
-path: a help page does. A buffer that is none -- never written, or named but
-not saved yet, a scratch buffer, a terminal -- has no file to point at, so its
-lines are all the agent gets, and the label says what it was instead:
-`Selected in my editor: lines 3-8 of a buffer with no file`, `... of a
-terminal`, `... of the buffer notes.md, which is no file on disk`, with
-`[No Name]:3-8`, `[Terminal]:3-8` or `notes.md:3-8` in the title. So a failed
-command's output, selected in its terminal, goes to an agent with no copying.
-Past `selection_max_lines` a label alone would point the agent at nothing, so
-the lines are copied to a file under |tempname()| and the label names it --
-`..., copied whole to /tmp/.../3.lua` -- for the agent to read rather than a
-long paste for its input box to swallow. The file is yours alone and goes
-when Neovim exits. A selection in a terminal's own buffer, or
-in its prompt, is not sent to that terminal: it has those lines already.
-
-None of it sits in the command buffer, so the line stays yours to edit and to
-walk history with, and history remembers the prompt without a selection that
-will not be true next time. Type nothing and nothing is sent; a selection
-alone asks the agent nothing. A `selection` you pass yourself is appended as
-given.
-
-A split outlives the send that opened it, so sending again aims at the
-window already there rather than splitting another one: a draft still in it is
-yours and stays -- only an empty one takes a seeded `command` -- with the new
-selection replacing whatever the title advertised before, and the terminal
-left in there gives the window back to its prompt: empty after a send, still
-holding the draft if you only looked at the terminal with <C-o>. A
-floating window already open is reused the same way rather than stacked.
-Launching a different terminal hands the split or float to the new
-terminal's prompt, in the same window; the previous terminal's prompt is set
-aside with its draft, and comes back as you left it when that terminal is
-launched there again.
-
-A terminal still producing output keeps the window instead, see
-|foyer.is_idle()|; there is no prompt for a selection to ride on then, so it
-is dropped and said so via |vim.notify()|.
+Foyer reuses the split or float it already has open rather than opening
+another. Launching a different terminal hands it to that terminal's prompt;
+each terminal's draft is kept and comes back with it. A terminal still
+producing output is shown instead of a prompt, see |foyer.is_idle()|, and a
+selection is then dropped, with a notice.
 
 ==============================================================================
 4. API                                                             *foyer-api*
@@ -286,39 +217,25 @@ is dropped and said so via |vim.notify()|.
                                                     *foyer.terminal_command()*
 terminal_command({opts})
     Wait for a `commands` key, spawn that terminal if it is not running for
-    the current project root, then open a command buffer for it. With no key
-    typed within `picker_delay`, a popup lists the keys, tagging global
-    terminals `global` and gathering them at the bottom, and marking running
-    ones `●`. <Esc> or CTRL-C cancels; a key that names no terminal is
-    ignored, and one typed before the popup showed brings it up.
+    the current project, then open a command buffer for it. With no key typed
+    within `picker_delay`, a popup lists the keys, tagging global terminals
+    `global` and marking running ones `●`. <Esc> or CTRL-C cancels.
+    `opts.key` names the terminal outright, and `opts.switch` steps into its
+    buffer instead of opening a prompt.
 
-    `opts.key` names the terminal outright, so a mapping can go straight to
-    one, and `opts.switch` steps into its buffer instead of opening a prompt.
-    A `scope = 'global'` terminal opens its prompt in the current window: >lua
-        vim.keymap.set({ 'n', 'v' }, '<leader>af', function()
-            foyer.terminal_command({ key = 'F' })
-        end, { desc = 'Prompt opencode' })
-<
                                                *foyer.send_terminal_command()*
 send_terminal_command({term_key}, {opts})
-    Drive a specific terminal without prompting for a character. With
+    Drive a specific terminal without prompting for a key. With
     `opts.command` set, the text is sent non-interactively; otherwise a
-    command buffer opens. With `opts.auto_start` the terminal is created if it
-    is missing.
+    command buffer opens. With `opts.auto_start` the terminal is created if
+    it is missing.
 
                                                      *foyer.switch_terminal()*
 switch_terminal()
-    Switch to this project's running terminal used last before the current one
-    -- the project the current terminal was started for, whatever the current
-    directory -- as CTRL-^ does for buffers: with two it toggles, and with
-    more the third is a picker away. A terminal counts as used when it is
-    launched, shown, or its prompt is entered. Global terminals are left out,
-    and none is started. The other terminal is shown in the same window; in
-    the split or float foyer keeps, its prompt is a <C-o> away with the draft
-    left in it, and the terminal left keeps its own. In any other window the
-    terminal is just shown there. Mapped to `keys.terminal.switch` in foyer's
-    terminals, <C-t> by default, which in a terminal would only go back up a
-    tag stack it is never on.
+    Switch to the terminal of this project used last before the current one,
+    in the same window: with two, a toggle. Each terminal's draft is kept.
+    Global terminals are left out, and none is started. Mapped to
+    `keys.terminal.switch`, <C-t>, in foyer's terminals.
 
                                                       *foyer.edit_selection()*
 edit_selection()
@@ -328,302 +245,153 @@ edit_selection()
 
                                                     *foyer.toggle_full_size()*
 toggle_full_size()
-    Toggle the current window between full screen and the size it had before:
-    height for a float; for a split, width and height both, so it fills the
-    screen whether it was split beside its neighbours, above or below them, or
-    in a layout of both, as CTRL-W | and CTRL-W _ together would. Putting it
-    back restores every split in the tab page to the size it had; floats,
-    which take no room from anyone, are left as they are. If splits have come
-    or gone since, that no longer fits them, and only the window's own width
-    and height go back, each only where a neighbour is left to take it from.
-    The size is remembered per window. Full screen is a request, not a
-    promise: a neighbouring split keeps its minimum size, so a split may stop
-    a few columns or lines short.
-
-    No key is mapped to it: map one of your own, for every window, foyer's
-    prompts and terminals among them: >lua
+    Toggle the current window between full screen and the size it had: a
+    float in height, a split both ways. Toggling back puts every split in the
+    tab page back as it was. A neighbouring split keeps its minimum size, so
+    a split may stop a little short. No key is mapped to it: >lua
         vim.keymap.set('n', '<leader>z', require('foyer').toggle_full_size)
 <
-
                                                                 *foyer.jump()*
 jump()
-    Jump to any tab, window, buffer or recently opened file by typing the hint
-    label drawn over it, after the tab switcher of Surfingkeys. Every tab page
-    is laid out with its windows placed as on screen, then the listed buffers
-    no window shows, by when they were last used, then recent files, each
-    name just long enough to tell it from the others. Type a label to go
-    there: to a window, or to a buffer or file opened in this one. With Shift
-    a label does the other thing: a window's buffer comes into this window,
-    and a buffer or file opens in a new tab. An empty window a buffer is
-    brought into leaves no `[No Name]` behind. <BS> starts the label again,
-    <Esc> cancels, any other key hands over to `jump.fallback`, see
-    |foyer-setup|. A window squeezed flat by a full-screen neighbour is left
-    out, as |foyer.tab_switch()| does; what it shows is still listed among the
-    buffers. The terminals foyer started are not listed:
-    |foyer.terminal_command()| reaches this project's and the global ones, in
-    a window with the prompt a <C-o> away, and another project's is reached
-    from that project. One shown in a window is still listed under Windows,
-    and a terminal you opened yourself is listed as any buffer.
-
-    It opens in a bordered window titled "Jump / Foyer", with the keys along
-    its bottom edge, and fits it whatever it holds. Tabs too many to sit side
-    by side carry on in bands below, each under a line of `─`. A name that
-    needs many directories to tell it apart, as copies of a project on two
-    drives do, keeps only the one that does and the last two:
-    `C:/…/module/init.lua` and `D:/…/module/init.lua`. A name still too long
-    for the window loses its start to `…`, keeping the file name. >lua
+    Jump to any tab, window, buffer or recent file by typing the hint label
+    drawn over it. Tab pages are laid out with their windows as on screen,
+    then the buffers no window shows, by when they were last used, then
+    recent files, each name shortened to what tells it apart. A label goes to
+    a window, or opens a buffer or file in this one; with Shift, a window's
+    buffer comes into this window, and a buffer or file opens in a new tab.
+    <BS> starts the label again, <Esc> cancels, and any other key hands over
+    to `jump.fallback`. Windows squeezed flat are left out, and so are
+    foyer's own terminals from the buffers. >lua
         vim.keymap.set('n', '<leader>b', require('foyer').jump)
 <
-
                                                           *foyer.tab_switch()*
 tab_switch()
-    Move to the next window worth looking at: CTRL-W w order, wrapping around,
-    skipping floats and any window a full-screen neighbour has squeezed down to
-    'winminwidth' or 'winminheight'. With one window on top and two below whose
-    left pane is squeezed, the right-hand pane therefore switches to the top
-    window.
+    Move to the next window worth looking at, in CTRL-W w order, skipping
+    floats and windows squeezed flat by a full-screen neighbour. With none
+    left, switch to the alternate buffer instead, like CTRL-^. A maximised
+    diff pane gives its pair back its size and steps into it.
 
-    When nothing is left to step into, the window stays put and the buffer
-    changes instead, like CTRL-^. That happens when the tab page holds no other
-    window — a float over it is not a destination — and when every other window
-    is squeezed flat.
-
-    A diff is the exception: a diff pane maximised with
-    |foyer.toggle_full_size()| gives the squeezed pane its size back and steps
-    into it, because a diff only reads beside its other half.
-
-                                                              *foyer.is_idle()*
+                                                             *foyer.is_idle()*
 is_idle({buf}, {threshold_ms})
     Return true when {buf} has produced no output for {threshold_ms}
-    milliseconds (default 1000). Used internally to decide whether a terminal
-    is still busy, in which case the terminal is shown instead of a new
+    milliseconds (default 1000). A busy terminal is shown instead of a new
     command buffer.
 
 ==============================================================================
-5. AGENT CONTEXT                                               *foyer-context*
+5. MAPPINGS                                                   *foyer-mappings*
 
-Everything foyer tells an agent about your editor is in the prompt itself. A
-Visual selection rides along below what you wrote, labelled with its file and
-lines, see |foyer-opts|; `@` puts in a file at a line, the one you opened the
-prompt from first, at your cursor, see |foyer-mention|. "Fix this" and `@<CR>`
-make `fix this @src/main.c:88`, which every agent understands as it is.
-
-==============================================================================
-6. MAPPINGS                                                   *foyer-mappings*
-
-All mappings below are buffer-local and created by the plugin. Each is set
-by the `keys` action named beside it, see |foyer-setup|: >lua
-    keys = {
-        -- Send with <Leader>s in Normal mode, nothing in Insert mode.
-        prompt = { send = { n = '<Leader>s' } },
-        -- Leave <C-r> alone in terminals.
-        terminal = { cd_root = false },
-    }
-<
-The `@` menu's keys are not configurable. |foyer.edit_selection()|'s window
-takes `send`, `close` and `close_if_empty` from `keys.prompt`.
+All mappings below are buffer-local, each set by the `keys` action named
+beside it, see |foyer-setup|. |foyer.edit_selection()|'s window takes `send`,
+`close` and `close_if_empty` from `keys.prompt`.
 
 In the command buffer ~
 
-A buffer with something to say already -- a seeded `command`, a prompt that
-is going to carry a `selection` -- starts in Insert mode at the end of its
-text. One opened with nothing to say starts in Normal mode, where <Up> walks
-history.
+A new prompt with something in it already -- a seeded `command`, a selection
+to carry -- opens in Insert mode; an empty one in Normal mode.
 
     <CR>              n    Send the buffer to the terminal (`send`)
     <C-s>             i    Send the buffer to the terminal (`send`)
     <C-p>, <Up>       n    Previous history entry (`history_prev`)
     <C-n>, <Down>     n    Next history entry (`history_next`)
-    <Up>              i    Previous history entry, from the first line
-                           (`history_prev`)
-    <Down>            i    Next history entry, from the last line
-                           (`history_next`)
-                           (elsewhere in a draft of many lines, or with a
-                           menu open, the keys' own)
-    <C-f>             n i  Label the most used prompts: a label inserts
-                           one at the cursor, Shift+label replaces the
-                           draft with it; `/` filters them; with a
-                           menu open, the menu's (`history_pick`)
-    @                 i    Mention an open file, see |foyer-mention|
+    <Up>, <Down>      i    Previous / next history entry, from the first /
+                           last line (`history_prev`, `history_next`)
+    <C-f>             n i  List the most used prompts, see |foyer-history|
+                           (`history_pick`)
+    @                 i    Mention a file, see |foyer-mention|
     <Esc>             n    Close the window if the buffer is empty
                            (`close_if_empty`)
     <C-c>             n    Close the window, discarding the draft (`close`)
-    <C-o>             n    Show the prompt's terminal in its window
-                           (`terminal`)
+    <C-o>             n    Show the prompt's terminal (`terminal`)
 
-Once a prompt is sent, the terminal takes its window, and <C-o> from there
-comes back to the prompt emptied, with the selection it carried gone: a
-follow-up written there goes alone. What was sent is in history, one <Up>
-away. <C-o> works before a send too: from the prompt it shows the terminal,
-to read what it has said, and <C-o> there brings back the draft as it was
-left. It only ever toggles between the two, never to the file the prompt was
-opened from; Insert-mode |i_CTRL-O| is Vim's own.
-
-History is stored per terminal name in `stdpath('cache')/foyer.json` and
-survives restarts. Typing text before walking the history filters it to
-entries containing that text, and highlights the match with |hl-FoyerMatch|.
+<C-o> toggles between a prompt and its terminal, in the same window. After a
+send, the terminal takes the window and its prompt is empty.
 
                                                                *foyer-history*
-In Insert mode <C-p> and <C-n> are completion's, as anywhere else, and
-<Up>/<Down> walk history as a shell's do: in a draft of many lines they move
-the cursor until it is on the first line, or the last, and only from there
-recall an entry. A walk under way goes on wherever the cursor is, so an entry
-of many lines is stepped over in one press.
+History is kept per terminal, in `stdpath('cache')/foyer.json`, across
+restarts. Typing first filters it to the entries containing what you typed,
+highlighted with |hl-FoyerMatch|. In Insert mode <C-p> and <C-n> are
+completion's, and <Up>/<Down> move the cursor in a draft of many lines until
+it is on its first or last line.
 
-<Up> walks history by recency. <C-f> lists it by how often and how recently
-each prompt was sent: its number of uses, halved for every week since the
-last, in a popup just below the cursor, or above it with no room below.
-Each is wrapped to the prompt's width, up to four rows, blank lines left out,
-and gets a hint label, as in |foyer.jump()|, made of `jump.characters`, one
-prompt per character. A label puts its prompt in at the cursor, after it in
-Normal mode as |p| does, at it in Insert mode as typing does, and leaves the
-cursor past it; the label with Shift replaces the whole draft with it. Nothing
-is sent until you send it. The list is not filtered by the draft, so the draft
-never changes which prompt is behind which label. The key is
-`keys.prompt.history_pick`, see |foyer-setup|.
+<C-f> lists history by how often and how recently each prompt was sent, in a
+popup at the cursor, each behind a hint label made of `jump.characters`. A
+label puts its prompt in at the cursor; with Shift it replaces the draft.
+Nothing is sent until you send it. The list is not filtered by the draft.
 
-Prompts of your own, set in `prompts` under the terminal's `commands` key,
-come first, in the order given, so each keeps its label however history
-goes: the first is always the first label. They wear a `★` where history has
-its count, are left out of the history below them, and are filtered with the
-rest.
+Prompts of your own, from `prompts`, come first, in the order given, each
+always behind the same label, and marked `★`.
 
-`/` in the list filters it: what you type narrows it as you go to the
-prompts holding every word of it, in any order, ignoring the case of A to Z
--- `stage review` finds "review the staged changes" -- over the whole
-history rather than the prompts on screen, still the most worth recalling
-first, the words highlighted with |hl-FoyerMatch|. What you type shows in the
-list's top border, and the list keeps the size and place it opened with, so
-nothing moves as it narrows. <BS> takes a character back, <C-w> a word, <C-u>
-the lot. <CR> goes back to picking, the labels given out afresh to what is
-left; <Esc> clears the filter, and once there is none closes the list.
+`/` in the list filters it, over the whole history, to the prompts holding
+every word you type, in any order, ignoring case. <BS> takes a character
+back, <C-w> a word, <C-u> the lot. <CR> goes back to picking among what is
+left; <Esc> clears the filter, and then closes the list.
 
                                                                *foyer-mention*
-In the prompt for one of your `commands`, `@` at the start of a word lists the
-open files -- files on disk, help pages among them, as an agent can read --
-the one you opened the prompt from first, at your cursor line, then the rest
-by when you last used them, each at its last change, then the files you used
-recently (|v:oldfiles|) in the same way. The menu shows ten at a time; typing
-after the `@` searches all of them by name, so a file further down is found as
-you type. While it is open:
+`@` at the start of a word lists the open files, the one you came from first,
+at your cursor line, then recent files (|v:oldfiles|). Typing after the `@`
+searches them by name. While it is open:
 
-    <CR>       Put in `@src/parser.c:120`: the path as the agent resolves it,
-               from the directory it was started in, or absolute for a
-               `scope = 'global'` one.
+    <CR>       Put in `@src/parser.c:120`, the path as the agent resolves it.
     <C-l>      Put in the selection block a Visual selection sends, see
                |foyer-opts|: the file's last Visual selection if it holds the
                line, else the line alone.
     <Esc>      Leave the `@` as typed.
 
-An `@` inside a word (`user@host`) is just an `@`, and so is one with no open
-file to offer. A recent file is read only when it comes into the menu,
-without its autocommands -- no filetype plugin or language server starts for
-it -- and let go again when the menu closes. A block put in with <C-l> is left
-out of history, which keeps the words around it.
-
-|foyer.edit_selection()|'s window is text you are editing rather than a
-prompt: it keeps <CR>, <C-s>, <Esc> and <C-c>, has no history, and always
-starts in Normal mode. With no terminal behind it, <C-o> there does nothing.
-
 In the terminal buffer ~
 
-<C-t> and the yank fix are on every terminal this plugin opens; the rest are
-attached when a terminal is shown in one of this plugin's own windows, which
-`switch` does not do -- it hands the terminal your window. None is mapped in
-Terminal mode, where every key is the program's, and a terminal foyer shows
-in one of its windows is shown in Normal mode, whatever showed it -- a send
-with <C-s> from Insert mode, a key mapped in Insert mode, an autocmd of yours
-that starts insert in terminals -- so foyer's keys are at hand and nothing
-typed by mistake reaches the program. In `keys.terminal`:
+In foyer's terminals, in Normal mode; nothing is mapped in Terminal mode,
+where every key is the program's:
 
-    <C-t>             n    |foyer.switch_terminal()| (`switch`)
-    <C-r>             n    cd to the root of the project the terminal was
-                           started for, whatever the current directory
-                           (`cd_root`)
-    <C-o>             n    Back to the prompt the terminal was shown for
-                           in this window; in one of yours, the key's own
-                           meaning, Vim's |CTRL-O| (`prompt`)
+    <C-t>              n   |foyer.switch_terminal()| (`switch`)
+    <C-r>              n   cd to the terminal's project root (`cd_root`)
+    <C-o>              n   Back to the prompt the terminal was shown for;
+                           elsewhere, Vim's |CTRL-O| (`prompt`)
     <CR>, <C-c>, <Esc> n   Close the terminal window (`close`)
 
-Yanking in a terminal buffer strips trailing whitespace from every line, since
-a terminal pads its lines out to the window width.
-
-A terminal follows its output in every window showing it, once foyer has shown
-it or sent it something: the cursor goes to the last line, so what comes after
-stays in view without Terminal mode. Move the cursor up to read back, and the
-window stays put until the next send.
+Yanking in a terminal strips the trailing whitespace a terminal pads lines
+with. A terminal foyer has shown or sent to keeps its newest output in view.
 
 ==============================================================================
-7. HIGHLIGHTS                                               *foyer-highlights*
+6. HIGHLIGHTS                                               *foyer-highlights*
 
                                                                *hl-FoyerMatch*
 FoyerMatch
     What the draft matches as <Up> walks history, and the words a `/` filter
-    matches in the <C-f> list, see |foyer-history|. Defaults to
-    `bg=#333333 fg=#ff7700 bold`, declared with `default = true` so your
-    colorscheme or an explicit |nvim_set_hl()| wins.
+    matches in the <C-f> list. Defaults to `bg=#333333 fg=#ff7700 bold`.
 
                                                             *hl-FoyerBackdrop*
 FoyerBackdrop
-    The veil dimming the editor while the |foyer.terminal_command()| picker
-    is up, blended in at 'winblend' 40. Defaults to `bg=#000000`. Only drawn
-    with 'termguicolors' set, since without it the veil cannot blend.
+    The veil dimming the editor behind the |foyer.terminal_command()|
+    picker; needs 'termguicolors'. Defaults to `bg=#000000`.
 
-|foyer.jump()| has its own, with a palette for each 'background', given as
-colors rather than links so they stay distinct in any colorscheme. Groups you
-set yourself are kept; set them from a |ColorScheme| autocmd, since a
+|foyer.jump()| has its own, with a palette for each 'background':
+
+    FoyerJumpTitle          section titles
+    FoyerJumpName           buffer, window and file names
+    FoyerJumpCurrent        the current buffer or window
+    FoyerJumpNoName         buffers without a file name
+    FoyerJumpTerminal       terminals foyer started
+    FoyerJumpLabel          hint labels
+    FoyerJumpLabelTyped     the part of a hint label already typed
+    FoyerJumpBackdrop       dims the editor behind it, see `jump.backdrop`
+
+All are defined with `default = true`, so your colorscheme or
+|nvim_set_hl()| wins; set them from a |ColorScheme| autocmd, since a
 colorscheme change clears them.
 
-    FoyerJumpTitle        section titles
-                          dark #65737e, light #8a8a8a
-    FoyerJumpName         buffer, window and file names
-                          dark #6699cc bold, light #005f87 bold
-    FoyerJumpCurrent      the current buffer or window
-                          dark #99c794 bold, light #008700 bold
-    FoyerJumpNoName       buffers without a file name
-                          dark #f99157 italic, light #af5f00 italic
-    FoyerJumpTerminal     terminals foyer started
-                          dark #c594c5 bold, light #875faf bold
-    FoyerJumpLabel        hint labels
-                          dark #1b2b34 on #fac863 bold,
-                          light #ffffff on #d75f00 bold
-    FoyerJumpLabelTyped   the part of a hint label already typed
-                          dark #1b2b34 on #65737e, light #ffffff on #8a8a8a
-    FoyerJumpBackdrop     dims the editor behind it, see `jump.backdrop`
-                          bg #000000
-
 ==============================================================================
-8. LIMITATIONS                                             *foyer-limitations*
+7. LIMITATIONS                                             *foyer-limitations*
 
-- A terminal foyer has just started gets nothing until it has: a program
-  starting up has not taken over its terminal yet, and taking it over
-  commonly throws away what was typed ahead. So a send to it -- an
-  `auto_start` command, or a prompt written faster than the agent came up --
-  is held, with a notice, until the program has drawn its first screen and
-  been quiet for half a second, and then sent. One that draws nothing is
-  taken as started after three seconds; one that never settles is sent to
-  after fifteen, with a warning. Prompts open at once either way, so the
-  writing does not wait.
-- Its first prompt is also typed without Enter, and the Enter goes only once
-  the text has shown on its screen. A program can come up on a question of
-  its own -- whether to trust the workspace, a login, an update -- and there
-  the Enter that ends a prompt would be the answer, given for you. So if the
-  text has not shown within two seconds, foyer sends nothing more and says
-  so: the question is yours to answer in the terminal, and the prompt is in
-  history, one <Up> away, to send again afterwards. While it waits, foyer
-  keeps out of Terminal mode, so no key of yours reaches the question by
-  accident.
-- A send containing a newline -- a multi-line draft, or any prompt with a
-  `selection` under it -- is wrapped in bracketed paste, so the
-  receiver inserts the newline instead of reading it as Enter and running the
-  first line on its own. What the receiver then does with a multi-line input
-  is its own business: an agent takes it as one prompt, a shell lands it on
-  one command line and still runs each of its lines in turn. A terminal
-  program that does not understand bracketed paste shows the [200~ escapes as
-  text -- set `bracketed_paste = false` for it, see |foyer-setup|. Single-line
-  sends are never wrapped.
-- |foyer.edit_selection()| goes through register a: the selection is yanked
-  into it on the way in, and the edited text on the way back out.
+- A send to a terminal that is still starting waits until it is ready, with
+  a notice. Prompts open at once, so the writing does not wait.
+- A terminal's first prompt gets its Enter only once its text shows on
+  screen. A program that starts on a question of its own -- trust this
+  folder, a login -- is never answered for you: foyer says so, and the prompt
+  is in history, one <Up> away.
+- A send of many lines is wrapped in bracketed paste, so the program takes
+  its newlines as text, not Enter. Set `bracketed_paste = false` for one that
+  shows the `[200~` escapes instead.
+- |foyer.edit_selection()| goes through register a.
 - Timings and the register are hardcoded.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

@@ -1,6 +1,9 @@
 -- Jump to any tab, window, buffer or recently opened file by typing the hint
 -- label drawn over it -- after Surfingkeys' tab switcher. Windows the layout
 -- has squeezed flat are left out: nobody chose to look at those.
+--
+-- How the labels are made unique, and the layout drawn, is written up in
+-- doc/jump-unique-names.md.
 local api = vim.api
 local config = require('foyer.config').options
 local is_sliver = require('foyer.layout').is_sliver

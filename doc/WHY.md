@@ -229,11 +229,9 @@ the agent of the `api` project.
 blunt tool that doesn't survive a restart.
 
 **With foyer.** Each terminal has its own history, saved across Neovim
-sessions. `<Up>` walks it, latest first, in normal mode and in insert mode,
-where in a draft of several lines it moves up a line at a time first, as a
-shell's does. Type something first, and only the entries containing it come up,
-with the match highlighted. Your zsh history and your agent history stay
-separate.
+sessions. `<Up>` walks it, latest first. Type something first, and only the
+entries containing it come up, with the match highlighted. Your zsh history
+and your agent history stay separate.
 
 And the prompts you send every day — "review the staged changes", "commit
 them" — don't sink under the one-offs: `<C-f>` lists history by how often and
