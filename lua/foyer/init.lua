@@ -796,6 +796,31 @@ vim.api.nvim_create_autocmd('BufWinEnter', {
     end,
 })
 
+local term_bufs = {}
+
+-- The project root terminal {term} of foyer's was started for, or nil for a
+-- global one, which belongs to no project.
+local function terminal_root(term)
+    for bucket, bufs in pairs(term_bufs) do
+        if bucket ~= '' then
+            for _, b in pairs(bufs) do
+                if b == term then return bucket end
+            end
+        end
+    end
+end
+
+-- The project the user is in. A file's own, found from it; but a terminal
+-- of foyer's, or a prompt for one, belongs to the project it was started for,
+-- whatever the current directory -- which is all a terminal's root could be
+-- found from, its name being no path. A global one belongs to none, and
+-- leaves the question to where the user is.
+local function current_root()
+    local buf = vim.api.nvim_get_current_buf()
+    local term = vim.b[buf].foyer_terminal and buf or vim.b[buf].foyer_term
+    return term and terminal_root(term) or project_root(vim.env.HOME)
+end
+
 local function init_term_buf(term_bufnr, win_id, prev_buf)
     -- Set for this buffer in this window only, so a borrowed window does not
     -- keep it once its own buffer is back.
@@ -822,9 +847,11 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
         end
     end, { build = true })
 
-    -- cd the terminal to the project root, wherever it has wandered off to.
+    -- cd the terminal to its project's root, wherever it has wandered off
+    -- to: the one it was started for, not wherever the editor is now. A
+    -- global one has none, and goes to the editor's.
     map(term_bufnr, 'terminal', 'cd_root', function()
-        local root = project_root(vim.fn.getcwd())
+        local root = terminal_root(term_bufnr) or project_root(vim.fn.getcwd())
         if root then
             vim.fn.chansend(vim.b[term_bufnr].terminal_job_id, "cd " .. vim.fn.shellescape(root) .. "\r")
         end
@@ -832,6 +859,14 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
 
     -- The latest output in view, and what comes after it as it comes.
     follow(term_bufnr)
+
+    -- Shown in Normal mode, however it came to be shown: a terminal taking
+    -- the window of a buffer in Insert mode is entered in Terminal mode, and
+    -- so is one an autocmd of the user's starts insert in. There every key
+    -- is the program's -- an agent's question it came up on among them --
+    -- and foyer's keys are out of reach. After the switch, so that it is
+    -- this, not the autocmd's startinsert, that has the last word.
+    if win_id == vim.api.nvim_get_current_win() then vim.cmd('stopinsert') end
 end
 
 local function init_command_buf_shared(bufnr, win_id, lines, on_enter)
@@ -1069,8 +1104,6 @@ local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
     attach_history(bufnr, opts.term)
 end
 
-local term_bufs = {}
-
 local function resolve_command(term_key, root, launch_info)
     local val = config.commands[term_key]
     if type(val) == "function" then
@@ -1163,7 +1196,7 @@ function M.send_terminal_command(term_key, opts)
     -- mention offers first, at the line the cursor is on.
     local source = vim.api.nvim_get_current_buf()
     local source_line = vim.api.nvim_win_get_cursor(0)[1]
-    local root = project_root(vim.env.HOME)
+    local root = current_root()
     local entry = resolve_command(term_key, root, opts.launch_info)
     local bucket = entry_bucket(entry, root)
     local target_buf = term_bufs[bucket] and term_bufs[bucket][term_key] or nil
@@ -1444,7 +1477,7 @@ function M.terminal_command(opts)
     opts = opts or {}
     capture(opts)
 
-    local root = project_root(vim.env.HOME)
+    local root = current_root()
     -- Every bucket, not just this project's: a global terminal is offered here
     -- too, and a buffer the user wiped must not be reported running.
     for _, bufs in pairs(term_bufs) do
@@ -1494,7 +1527,7 @@ end
 -- the prompt. In any other window the terminal is simply shown.
 function M.switch_terminal()
     local current = vim.api.nvim_get_current_buf()
-    local root = project_root(vim.env.HOME)
+    local root = current_root()
     -- What a function in `commands` is resolved with, as for any launch.
     local opts = {}
     capture(opts)

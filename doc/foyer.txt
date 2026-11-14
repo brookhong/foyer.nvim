@@ -308,12 +308,13 @@ send_terminal_command({term_key}, {opts})
 
                                                      *foyer.switch_terminal()*
 switch_terminal()
-    Switch to this project's running terminal used last before the current
-    one, as CTRL-^ does for buffers: with two it toggles, and with more the
-    third is a picker away. A terminal counts as used when it is launched,
-    shown, or its prompt is entered. Global terminals are left out, and none
-    is started. The other terminal is shown in the same window; in the
-    split or float foyer keeps, its prompt is a <C-o> away with the draft
+    Switch to this project's running terminal used last before the current one
+    -- the project the current terminal was started for, whatever the current
+    directory -- as CTRL-^ does for buffers: with two it toggles, and with
+    more the third is a picker away. A terminal counts as used when it is
+    launched, shown, or its prompt is entered. Global terminals are left out,
+    and none is started. The other terminal is shown in the same window; in
+    the split or float foyer keeps, its prompt is a <C-o> away with the draft
     left in it, and the terminal left keeps its own. In any other window the
     terminal is just shown there. Mapped to `keys.terminal.switch` in foyer's
     terminals, <C-t> by default, which in a terminal would only go back up a
@@ -529,10 +530,16 @@ In the terminal buffer ~
 <C-t> and the yank fix are on every terminal this plugin opens; the rest are
 attached when a terminal is shown in one of this plugin's own windows, which
 `switch` does not do -- it hands the terminal your window. None is mapped in
-Terminal mode, where every key is the program's. In `keys.terminal`:
+Terminal mode, where every key is the program's, and a terminal foyer shows
+in one of its windows is shown in Normal mode, whatever showed it -- a send
+with <C-s> from Insert mode, a key mapped in Insert mode, an autocmd of yours
+that starts insert in terminals -- so foyer's keys are at hand and nothing
+typed by mistake reaches the program. In `keys.terminal`:
 
     <C-t>             n    |foyer.switch_terminal()| (`switch`)
-    <C-r>             n    cd to the project root (`cd_root`)
+    <C-r>             n    cd to the root of the project the terminal was
+                           started for, whatever the current directory
+                           (`cd_root`)
     <C-o>             n    Back to the prompt the terminal was shown for
                            in this window; in one of yours, the key's own
                            meaning, Vim's |CTRL-O| (`prompt`)

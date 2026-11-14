@@ -100,6 +100,56 @@ H.test('<C-t> stays in the window, whatever the other terminal\'s win_type', fun
     foyer.setup({ commands = { e = H.quiet } })
 end)
 
+H.test('<C-t> keeps to the terminal\'s own project, wherever the current directory is', function()
+    -- Two projects, each a directory with a .git of its own.
+    local base = vim.fn.tempname()
+    local roots = {}
+    for _, name in ipairs({ 'A', 'B' }) do
+        roots[name] = base .. '/' .. name
+        vim.fn.mkdir(roots[name] .. '/.git', 'p')
+        vim.fn.writefile({ name }, roots[name] .. '/file.txt')
+    end
+    local cwd = vim.fn.getcwd()
+    local a, here, prompt_for, cd_sent
+    -- Whatever happens in between, the directory is put back for the tests
+    -- after this one.
+    local ok, err = pcall(function()
+        fresh()
+        vim.cmd('edit ' .. roots.A .. '/file.txt')
+        a = sent('q')
+        H.reset()
+        vim.cmd('edit ' .. roots.B .. '/file.txt')
+        sent('q')
+        -- The user is in project B's directory now.
+        vim.cmd.cd(roots.B)
+        H.reset()
+        -- A's terminal, as foyer shows it: its keys mapped.
+        vim.cmd('buffer ' .. a)
+        press_switch()
+        here = H.state().buf
+        -- <C-r> takes A's shell to A's root, not B's.
+        launch('q')
+        H.feed('<C-o>')
+        H.sent_clear()
+        H.feed('<C-r>')
+        cd_sent = table.concat(H.sent())
+        vim.cmd('stopinsert')
+        -- And a launch from A's terminal is for A's project too.
+        H.reset()
+        vim.cmd('buffer ' .. a)
+        launch('q')
+        prompt_for = vim.b[H.state().buf].foyer_term
+        vim.cmd('stopinsert')
+    end)
+    vim.cmd.cd(cwd)
+    if not ok then error(err, 0) end
+    H.eq(a, here, 'A has no other terminal: still A\'s')
+    -- The root as the project knows it: symlinks resolved, /var as /private/var.
+    local root_a = vim.fs.normalize(vim.uv.fs_realpath(roots.A))
+    H.ok(cd_sent:find('cd ' .. vim.fn.shellescape(root_a), 1, true), '<C-r> to A\'s root: ' .. cd_sent)
+    H.eq(a, prompt_for, 'the prompt is for A\'s terminal, not B\'s')
+end)
+
 H.test('global terminals are left out', function()
     fresh()
     local q = sent('q', 'split')
