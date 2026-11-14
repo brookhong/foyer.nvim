@@ -1,8 +1,9 @@
 # Why foyer.nvim
 
-**You live in Neovim. Your shell, your debugger and your coding agent live in
-terminals. foyer.nvim is the room between them, where everything you are about
-to say gets written in a real Vim buffer first.**
+**You live in Neovim. Your coding agent lives in a terminal, and so do your
+shell and your debugger. foyer.nvim is the room between them: it keeps each
+agent where you can find it, and everything you are about to say gets written
+in a real Vim buffer first.**
 
 ---
 
@@ -13,6 +14,8 @@ to say gets written in a real Vim buffer first.**
   backspace key.
 - You paste a multi-line prompt into the agent, and it **sends the first line on
   its own**, before you've finished explaining.
+- You send a prompt to an agent that is still starting, and the Enter at the
+  end of it answers *"Do you trust this folder?"* for you.
 - You want to ask about *this function*, so you yank forty lines, paste them in,
   and then type "in src/parser.c, around line 120…" anyway.
 - You've typed "fix this" to an agent, and it asks you *which file*.
@@ -24,6 +27,7 @@ to say gets written in a real Vim buffer first.**
   hunting through your buffers for its terminal.
 - You typed the same "run the tests and summarise the failures" prompt
   yesterday, and the day before.
+- The gdb commands you typed in yesterday's session are gone today.
 
 foyer.nvim fixes each of these, and you don't have to change how you work.
 
@@ -76,10 +80,6 @@ Multi-line sends are wrapped in bracketed paste, so the agent inserts your
 newlines instead of reading them as Enter. The prompt window then turns into
 the agent's terminal, so you watch the answer come in exactly where you asked.
 `<CR>` puts it away again.
-
-A prompt sent while the agent is still starting waits until it's ready. If the
-agent opens on a question of its own, such as whether to trust the folder,
-foyer won't answer it for you: it tells you, and the prompt is one `<Up>` away.
 
 Forgot a letter? Pause after `<leader>a` and a picker lists every agent you
 configured.
@@ -271,11 +271,63 @@ while it works? `<C-o>` takes you to the prompt.
 
 ---
 
+## Scenario 8: Send now, even while it's starting
+
+**The pain.** You open the editor, launch the agent, and have your prompt ready
+before it has finished loading. Send too early and the text can get lost; or
+the agent's first screen is a question, such as whether to trust the folder,
+and the Enter at the end of your prompt answers it.
+
+**With foyer.** Send whenever you like. A prompt sent while the agent is
+starting waits until it's ready, and several go in the order you sent them.
+The first one goes in two steps: the text, then the Enter, only once the agent
+shows the text. If it doesn't, because the agent is asking something, foyer
+stops there, with any queued behind it, and tells you. Answer the question in
+the terminal yourself; every prompt you sent is in your history, `<Up>` away.
+
+---
+
+## Scenario 9: Not just agents: your shell and your debugger
+
+**The pain.** The agent isn't the only program you type into. A long pipeline
+in your shell, a breakpoint condition in gdb: each is edited in a one-line
+readline prompt, and gdb doesn't even keep its history across sessions unless
+you tell it to.
+
+**With foyer.** Give them letters too, and pin the commands you always reach
+for:
+
+```lua
+commands = {
+    z = 'zsh',
+    g = 'gdb',
+},
+prompts = {
+    g = { 'thread apply all bt', 'info locals' },
+},
+```
+
+`<leader>a z` opens the same buffer for your shell: write the command with Vim,
+send it, and it goes into foyer's history for zsh, kept across sessions and
+apart from your agent's. In gdb, `<C-f>` puts your pinned commands a key away,
+and `<Up>` brings back what you typed last time. A build still printing?
+`<leader>a z` shows its output instead of a prompt, as with an agent in
+Scenario 7. And when it fails, select the error and ask the agent about it
+(Scenario 2).
+
+One thing stays with the agent: a selection and an `@` mention are written for
+an agent to read. A shell would try to run them, so take them to the agent.
+
+---
+
 ## The small things that add up
 
 - **`edit_selection()`** opens any visual selection in a floating scratch
   buffer and writes it back. Good for reworking a paragraph or a gnarly regex in
   isolation.
+- **Your keys stay yours.** A terminal foyer shows is in Normal mode, so a
+  stray key doesn't land in the agent. While you do type into it, its window
+  is tinted (`FoyerTerminal`).
 - **Clean yanks from terminals.** The trailing whitespace a terminal pads every
   line with is stripped when you yank.
 - **`toggle_full_size()`** toggles any window to full screen and back, splits

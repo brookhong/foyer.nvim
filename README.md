@@ -1,37 +1,73 @@
 # foyer.nvim
 
-Edit what you are about to type into a Neovim terminal in a real buffer first.
+Work with terminal coding agents from Neovim: one per project, prompts written
+in a real buffer, your code sent along, their progress one key away.
 
-Terminal command lines are a hostile editing environment: no `dw`, no visual
-block, no undo, and pasting a multi-line prompt into an LLM CLI is a gamble.
-This plugin puts a normal, modifiable buffer in front of the terminal. You edit
-with the full power of Vim, press `<CR>`, and the text is sent to the shell.
+Agent CLIs are where a lot of the thinking happens now, and they live in
+terminals your editor knows nothing about. Their input boxes have no `dw`, no
+undo, and turn a multi-line paste into a gamble; finding the right agent for
+this repo, and later checking on it, means hunting through buffers. foyer puts a
+normal, modifiable buffer in front of each agent and keeps track of the agents
+themselves. Bring your own CLI: Claude Code, opencode, pi, any of them.
 
-A foyer is the room you pass through on the way in. Nothing reaches the shell
+A foyer is the room you pass through on the way in. Nothing reaches the agent
 until you are done with it here.
 
 ## Features
 
-- **Project-scoped named terminals** — one keypress picks a terminal by its
-  first character (`z` → zsh, `g` → gdb, `a` → your coding agent). Terminals are
-  keyed by project root, spawned on demand, and reused; a `scope = 'global'`
-  one is kept for the whole session instead. `<C-t>` in one goes back to the
-  one you used before it.
-- **Per-terminal command history** — persisted across sessions, scoped per
-  terminal. `<Up>`/`<Down>` walk it, filtered by what you have typed.
-  `<C-f>` lists your most used prompts, ranked by frequency and recency, after
-  prompts of your own pinned on top, and `/` there searches all of them by
+**Reach the right agent**
+
+- **One per project** — a key picks an agent, spawned in the project root on
+  first use and reused after, so each repo keeps its own conversation; with a
+  CLI's `-c`, it picks that back up after a restart. An entry can be a
+  function of the project root, to choose the agent per repo.
+- **A side chat** — a `scope = 'global'` agent is one for the whole session,
+  reached from any repo, for questions that are not about this one.
+- **A picker when you pause** — it lists every key and marks the agents
+  already running.
+
+**Ask**
+
+- **Multi-line prompts** — write with the full power of Vim, send it as one
+  payload, inserted by the agent rather than sent line by line.
+- **Your code in the prompt** — start from a visual selection, in a file or in
+  a terminal's output, and it goes along, labelled with where it came from;
+  type `@` to mention an open file at a line. It is all in the text the agent
+  reads, so any agent understands it with no setup.
+- **Prompts worth keeping** — a history per agent, kept across sessions:
+  `<Up>` walks it, filtered by what you have typed; `<C-f>` lists your most
+  used, after prompts of your own pinned on top, and `/` searches them by
   words.
-- **Multi-line prompts** — write a paragraph across many lines, send it as one
-  payload. Made for agent CLIs, not just shell one-liners.
-- **Editor context in the prompt** — start from a visual selection and it goes
-  with the prompt, labelled with its file and lines; type `@` to mention an open
-  file at a line, the one you came from first. All of it is in the text the
-  agent reads, so any agent understands it with no setup.
-- **Editable visual selection** — `edit_selection()` opens any visual selection
-  in a floating scratch buffer and writes the result back over the selection.
-- **Jump anywhere** — `jump()` labels every tab, window, buffer and recent file;
-  type a label to go there.
+
+**Send safely**
+
+- **Waits until the agent is ready** — a prompt sent while it starts is held
+  until it can take one, and its Enter waits until the agent shows the text,
+  so a question the agent opened on, such as whether to trust the folder, is
+  left for you to answer.
+
+**Watch it work**
+
+- **One key to ask and to check** — the key that opens a prompt shows the
+  agent's terminal instead while it is still producing output, kept scrolled
+  to the latest.
+- **Your keys stay yours** — a terminal foyer shows is in Normal mode, so a
+  stray key doesn't reach the agent, and while you do type into it its window
+  is tinted.
+
+**Move around**
+
+- `<C-o>` goes between an agent's prompt and its terminal, a half-written
+  draft kept for each; `<C-t>` hops to the terminal you used before;
+  `jump()` labels every tab, window, buffer and recent file, foyer's agents
+  marked among them.
+
+**And also**
+
+- **Shells and debuggers** — zsh, gdb or a REPL gets the same buffer, with a
+  history and pinned commands of its own.
+- **`edit_selection()`** — rework any visual selection in a floating scratch
+  buffer and write it back.
 - **Every key configurable** — each key foyer maps in its prompts and
   terminals is set by action, and nothing is mapped globally or in terminal
   mode.
@@ -49,8 +85,8 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
     'brookhong/foyer.nvim',
     opts = {
         commands = {
-            z = 'zsh',
             a = { 'opencode', '-c' },
+            z = 'zsh',
         },
     },
 }
@@ -69,9 +105,9 @@ require('foyer').setup({
     -- either. Its prompt opens in a split beside your code, or a float with
     -- win_type = 'float'; scope = 'global' keeps one for the whole session.
     commands = {
-        z = { 'zsh', win_type = 'float' },
         a = { 'opencode', '-c' },
         F = { 'opencode', '-c --agent counselor', cwd = vim.env.HOME, scope = 'global' },
+        z = { 'zsh', win_type = 'float' },
     },
 
     -- Prompts of your own, pinned on top of a terminal's <C-f> list.

@@ -1,4 +1,4 @@
-*foyer.txt*   Edit what you send to a terminal in a real buffer first
+*foyer.txt*   Work with terminal coding agents from Neovim
 
 Author:  Brook Hong
 License: MIT
@@ -17,15 +17,18 @@ CONTENTS                                                      *foyer-contents*
 ==============================================================================
 1. INTRODUCTION                                           *foyer-introduction*
 
-*foyer.nvim* puts a normal, modifiable buffer in front of a |terminal| buffer.
-You compose a command with the full power of Vim, press <CR>, and the text is
-sent to the shell.
+*foyer.nvim* runs your terminal coding agents, one per project, and puts a
+normal, modifiable buffer in front of each. You write a prompt with the full
+power of Vim, with a selection or an `@` mention of your code if you like,
+press <CR>, and the agent gets it as one prompt; the same key later shows how
+it is getting on. Any other terminal program, a shell or gdb, takes a prompt
+the same way.
 
-A foyer is the room you pass through on the way in. Nothing reaches the shell
-until you are done with it here.
+A foyer is the room you pass through on the way in. Nothing reaches the
+terminal until you are done with it here.
 
-It also manages named, project-scoped terminals, keeps a persistent per
-terminal command history, and can edit a visual selection in a scratch window.
+It also keeps a persistent prompt history per terminal, and can edit a visual
+selection in a scratch window.
 
 The plugin defines no global mappings. See |foyer-api| and wire up the
 functions you want, for instance: >lua
@@ -188,9 +191,10 @@ Command {opts} accepted by |foyer.terminal_command()| and
     switch        Show the terminal in the current window rather than opening
                   a prompt for it, and return its buffer.
 
-Starting from Visual mode attaches the selection. The prompt opens with the
-selection's place in its title -- `src/main.c:30-36` -- and the selection is
-added below what you write as it is sent: >
+Starting from Visual mode attaches the selection, for an agent to read: a
+shell would run its label. The prompt opens with the selection's place in its
+title -- `src/main.c:30-36` -- and the selection is added below what you write
+as it is sent: >
     what does this do?
 
     Selected in my editor: /repo/src/main.c, lines 30-36
