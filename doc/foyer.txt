@@ -112,6 +112,17 @@ mention ~
     Whether `@` in a prompt lists files to mention, see |foyer-mention|.
     Defaults to `true`.
 
+notify ~
+    Whether foyer tells you, with |vim.notify()|, that a terminal's program
+    is done, waiting for you, or failed, unless that terminal is in view.
+    Only a program that reports its state, such as pi, says so; see
+    |FoyerStatus|. Defaults to `true`.
+
+tabline ~
+    Whether foyer draws the tab line, like Neovim's own with each tab page's
+    mark from |foyer.tab_mark()| in front, when 'tabline' is empty. Defaults
+    to `false`.
+
 keys ~
     The keys foyer maps in its own buffers, by action: `prompt` for the
     command buffer, `terminal` for a terminal foyer started, see
@@ -224,7 +235,8 @@ terminal_command({opts})
     Wait for a `commands` key, spawn that terminal if it is not running for
     the current project, then open a command buffer for it. With no key typed
     within `picker_delay`, a popup lists the keys, tagging global terminals
-    `global` and marking running ones `●`. <Esc> or CTRL-C cancels.
+    `global`, marking running ones `●` and what one that reports its state
+    is doing, see |FoyerStatus|. <Esc> or CTRL-C cancels.
     `opts.key` names the terminal outright, and `opts.switch` steps into its
     buffer instead of opening a prompt.
 
@@ -276,11 +288,39 @@ tab_switch()
     left, switch to the alternate buffer instead, like CTRL-^. A maximised
     diff pane gives its pair back its size and steps into it.
 
+                                                           *foyer.tab_mark()*
+tab_mark({tabnr})
+    The mark of tab page {tabnr}: `✓` when an agent there is done, `?` when
+    one waits for you, `✗` when one failed, the most urgent first, or `''`.
+    An agent's tab page is the one showing it or its prompt, else the one it
+    was last used in. A tab page is marked only while you are in another, and
+    entering it clears the mark; so does going to the agent from anywhere,
+    or its working again. For a tab line of your own, put it in each tab
+    page's label, or read the state from `vim.t.foyer_status`; or let foyer
+    draw one, see `tabline`.
+
                                                              *foyer.is_idle()*
 is_idle({buf}, {threshold_ms})
     Return true when {buf} has produced no output for {threshold_ms}
-    milliseconds (default 1000). A busy terminal is shown instead of a new
-    command buffer.
+    milliseconds (default 1000). A program that reports its state is busy
+    while working or waiting for you, and idle once done. A busy terminal is
+    shown instead of a new command buffer.
+
+                                                                 *FoyerStatus*
+A program that reports its state with the Program Status Protocol (OSC 7501),
+such as pi, does so in foyer's terminals with no setup. Each change is a
+|User| event `FoyerStatus`, with `data` = `{ buf, key, project, state,
+message }`: `state` is `working`, `blocked` (waiting for you), `done`,
+`error`, `idle`, or `clear` once it stops reporting; `project` is nil for a
+global terminal. For a notification outside Neovim, for example: >lua
+    vim.api.nvim_create_autocmd('User', { pattern = 'FoyerStatus',
+        callback = function(ev)
+            if ev.data.state == 'done' then
+                vim.system({ 'osascript', '-e',
+                    'display notification "done" with title "foyer"' })
+            end
+        end })
+<
 
 ==============================================================================
 5. MAPPINGS                                                   *foyer-mappings*

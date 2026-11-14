@@ -14,7 +14,11 @@ local context = require('foyer.context')
 local selection_appendix = context.selection_appendix
 local capture = context.capture
 local mention = require('foyer.mention')
+local tabline = require('foyer.tabline')
 local last_output_time = {}
+-- What a terminal's program last reported of its state, for one that speaks
+-- the Program Status Protocol (OSC 7501): { state, message }.
+local program_status = {}
 
 -- Terminals foyer started and that have not finished starting yet, with when
 -- they were started. A program reads nothing it is sent while it starts: it
@@ -31,7 +35,15 @@ local SILENT_MS = 3000
 local START_TIMEOUT_MS = 15000
 
 
+-- A program that reports its state is taken at its word: busy while working
+-- or waiting on the user, through any quiet spell, and idle once done. One
+-- that does not is idle once quiet for {threshold_ms}.
 function M.is_idle(buf, threshold_ms)
+    local status = program_status[buf]
+    if status then
+        if status.state == 'working' or status.state == 'blocked' then return false end
+        if status.state == 'done' or status.state == 'error' or status.state == 'idle' then return true end
+    end
     threshold_ms = threshold_ms or 1000
     local t = last_output_time[buf]
     return t == nil or (vim.uv.now() - t) > threshold_ms
@@ -759,8 +771,10 @@ vim.api.nvim_create_autocmd('BufEnter', {
     callback = function(ev)
         if vim.b[ev.buf].foyer_terminal then
             touch(ev.buf)
+            tabline.remember(ev.buf)
         elseif vim.b[ev.buf].foyer_prompt and vim.b[ev.buf].foyer_term then
             touch(vim.b[ev.buf].foyer_term)
+            tabline.remember(vim.b[ev.buf].foyer_term)
         end
     end,
 })
@@ -780,6 +794,8 @@ local function setup_terminal_keymaps(buf)
         on_detach = function()
             term_setup_done[buf] = nil
             last_output_time[buf] = nil
+            program_status[buf] = nil
+            tabline.forget(buf)
             last_used[buf] = nil
             starting[buf] = nil
             pending[buf] = nil
@@ -887,6 +903,95 @@ local function current_root()
     local term = vim.b[buf].foyer_terminal and buf or vim.b[buf].foyer_term
     return term and terminal_root(term) or project_root(vim.env.HOME)
 end
+
+-- The Program Status Protocol (OSC 7501): a program -- pi among them -- asks
+-- the terminal whether it listens, and once told so, reports each change of
+-- its state: `ESC ] 7501 ; state=done:app=pi:msg=<base64>`. Foyer's terminals
+-- answer, keep the state for is_idle() and the picker, and tell the user when
+-- one is done, waiting on them, or failed, unless it is in view: then they
+-- see it themselves. Every change is also a `User FoyerStatus` event.
+local STATUS_REPLY = '\27]7501;?\27\\'
+local STATUS_NOTICE = {
+    done = { 'is done', vim.log.levels.INFO },
+    blocked = { 'is waiting for you', vim.log.levels.WARN },
+    error = { 'failed', vim.log.levels.ERROR },
+}
+
+-- The fields of one report, 'query' for the question, nil for anything else.
+local function parse_status(seq)
+    local body = seq:match('^\27%]7501;(.*)$')
+    if not body then return nil end
+    body = body:gsub('\27\\$', ''):gsub('\7$', '')
+    if body:sub(1, 1) == '?' then return 'query' end
+    local fields = {}
+    for pair in vim.gsplit(body, ':', { plain = true }) do
+        local k, v = pair:match('^([%w_]+)=(.*)$')
+        if k then fields[k] = v end
+    end
+    if fields.msg then
+        local ok, text = pcall(vim.base64.decode, fields.msg)
+        fields.message = ok and text ~= '' and text or nil
+    end
+    return fields
+end
+
+local function in_view(buf)
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if vim.api.nvim_win_get_buf(win) == buf then return true end
+    end
+    return false
+end
+
+local status_group = vim.api.nvim_create_augroup('foyer_program_status', { clear = true })
+vim.api.nvim_create_autocmd('TermRequest', {
+    group = status_group,
+    callback = function(ev)
+        local buf = ev.buf
+        if not vim.b[buf].foyer_terminal then return end
+        local seq = type(ev.data) == 'table' and ev.data.sequence or ev.data
+        local fields = type(seq) == 'string' and parse_status(seq)
+        if not fields then return end
+        if fields == 'query' then
+            -- Now, ahead of the terminal's own replies to what was asked
+            -- with it: a program takes those as the end of its asking.
+            vim.fn.chansend(vim.b[buf].terminal_job_id, STATUS_REPLY)
+            return
+        end
+        local state = fields.state
+        if not state then return end
+        local before = program_status[buf]
+        program_status[buf] = state ~= 'clear' and { state = state, message = fields.message } or nil
+        if before and before.state == state and before.message == fields.message then return end
+        -- Out of the terminal's parsing, where neither a message nor another
+        -- plugin's autocmd has any business.
+        vim.schedule(function()
+            if not vim.api.nvim_buf_is_valid(buf) then return end
+            tabline.set(buf, state)
+            local root = terminal_root(buf)
+            local notice = STATUS_NOTICE[state]
+            if notice and config.notify ~= false and not in_view(buf) then
+                local text = ('foyer.nvim: %s · %s %s'):format(term_label(buf),
+                    root and vim.fs.basename(root) or 'global', notice[1])
+                if state ~= 'done' and fields.message then text = text .. ': ' .. fields.message end
+                vim.notify(text, notice[2])
+            end
+            vim.api.nvim_exec_autocmds('User', {
+                pattern = 'FoyerStatus',
+                modeline = false,
+                data = { buf = buf, key = vim.b[buf].foyer_key, project = root, state = state,
+                    message = fields.message },
+            })
+        end)
+    end,
+})
+-- A program gone reports nothing more, and must not stay busy.
+vim.api.nvim_create_autocmd('TermClose', {
+    group = status_group,
+    callback = function(ev)
+        program_status[ev.buf] = nil
+        tabline.forget(ev.buf)
+    end,
+})
 
 local function init_term_buf(term_bufnr, win_id, prev_buf)
     -- Set for this buffer in this window only, so a borrowed window does not
@@ -1409,6 +1514,9 @@ function M.send_terminal_command(term_key, opts)
             vim.b[bufnr].foyer_title = title
             init_prompt(opts.selection ~= nil or not is_blank(command or ""))
         end, { term = target_buf })
+        -- In use here, now: a fresh prompt's BufEnter came before it was
+        -- told which terminal it is for.
+        tabline.remember(target_buf)
     else
         if vim.b[target_buf] and vim.b[target_buf].terminal_job_id then
             send_command(target_buf, command, "\r")
@@ -1472,6 +1580,7 @@ local function pick_terminal(root, launch_info, running)
             name = tostring(entry_name(entry)),
             global = entry_is_global(entry),
             running = running[key] ~= nil,
+            state = running[key] and program_status[running[key]] and program_status[running[key]].state,
         }
         name_width = math.max(name_width, vim.fn.strdisplaywidth(row.name))
         table.insert(rows, row)
@@ -1485,7 +1594,7 @@ local function pick_terminal(root, launch_info, running)
     end)
 
     local any_global = vim.iter(rows):any(function(row) return row.global end)
-    local lines, tags = {}, {}
+    local lines, tags, states = {}, {}, {}
     for i, row in ipairs(rows) do
         local line = (' %s  %s'):format(row.key, row.name)
         if row.global or row.running then
@@ -1499,6 +1608,11 @@ local function pick_terminal(root, launch_info, running)
                 line = line .. (' '):rep(#'global')
             end
             if row.running then line = line .. ' ●' end
+            -- What it reported, but for idle, which says no more than ●.
+            if row.state and row.state ~= 'idle' then
+                states[i] = { #line + 1, #line + 1 + #row.state, row.state }
+                line = line .. ' ' .. row.state
+            end
         end
         lines[i] = line .. ' '
     end
@@ -1517,6 +1631,10 @@ local function pick_terminal(root, launch_info, running)
         vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 1, { end_col = 2, hl_group = 'Special' })
         if tags[i] then
             vim.api.nvim_buf_set_extmark(buf, ns, i - 1, tags[i][1], { end_col = tags[i][2], hl_group = 'Comment' })
+        end
+        if states[i] then
+            local group = ({ blocked = 'WarningMsg', error = 'ErrorMsg' })[states[i][3]] or 'Comment'
+            vim.api.nvim_buf_set_extmark(buf, ns, i - 1, states[i][1], { end_col = states[i][2], hl_group = group })
         end
     end
     vim.bo[buf].modifiable = false
@@ -1668,7 +1786,12 @@ function M.edit_selection()
 end
 
 
-M.setup = options.setup
+function M.setup(opts)
+    options.setup(opts)
+    tabline.apply(config.tabline)
+end
+-- The mark of tab page {tabnr}, for a tab line of your own.
+M.tab_mark = tabline.tab_mark
 -- Required on first use: the picker makes its buffers when it is loaded.
 function M.jump()
     return require('foyer.jump').open()

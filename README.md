@@ -51,6 +51,10 @@ until you are done with it here.
 - **One key to ask and to check** — the key that opens a prompt shows the
   agent's terminal instead while it is still producing output, kept scrolled
   to the latest.
+- **Told when it's done** — an agent that reports its state, such as pi,
+  tells you when it is done, waiting for you, or failed, in whatever project;
+  the tab page it is in gets a mark until you go there, and the picker shows
+  what each is doing. A `User FoyerStatus` event lets you take it further.
 - **Your keys stay yours** — a terminal foyer shows is in Normal mode, so a
   stray key doesn't reach the agent, and while you do type into it its window
   is tinted.

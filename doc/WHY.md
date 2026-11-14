@@ -269,6 +269,14 @@ based on what the agent is doing right now.
 Seen enough? `<CR>` puts the terminal away. Want to start on your follow-up
 while it works? `<C-o>` takes you to the prompt.
 
+Better still, don't check at all. An agent that reports its state, such as pi,
+tells foyer when it's working, waiting for you, done or failed, and foyer
+tells you: *"pi · api is done"*, from whatever project you're in now. While
+it's working, the same key shows its terminal however long it goes quiet, and
+the picker shows each agent's state next to its letter. Working in another tab
+page? The agent's tab page gets a mark, `✓`, `?` or `✗`, until you go there:
+`tab_mark()` for your own tab line, or `tabline = true` for foyer to draw one.
+
 ---
 
 ## Scenario 8: Send now, even while it's starting
