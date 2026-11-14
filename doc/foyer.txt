@@ -364,6 +364,12 @@ FoyerBackdrop
     The veil dimming the editor behind the |foyer.terminal_command()|
     picker; needs 'termguicolors'. Defaults to `bg=#000000`.
 
+                                                            *hl-FoyerTerminal*
+FoyerTerminal
+    The window of a foyer terminal in Terminal mode, where your keys go to
+    the program. Defaults to the |hl-Normal| background, darker; link it to
+    |hl-Normal| to leave the window alone.
+
 |foyer.jump()| has its own, with a palette for each 'background':
 
     FoyerJumpTitle          section titles

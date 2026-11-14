@@ -523,6 +523,36 @@ local function set_default_hl()
     })
     -- The veil over the editor while the terminal picker is up.
     vim.api.nvim_set_hl(0, 'FoyerBackdrop', { bg = '#000000', default = true })
+    -- A foyer terminal's window in Terminal mode: the colorscheme's own
+    -- background, darker, so it is told apart on any theme without a color of
+    -- its own. A dark one needs the bigger step to show; one already near
+    -- black, which cannot get darker, goes lighter instead.
+    local normal = vim.api.nvim_get_hl(0, { name = 'Normal', link = false })
+    local dark = vim.o.background ~= 'light'
+    local bg = normal.bg or (dark and 0x000000 or 0xffffff)
+    local function shade(toward, amount)
+        local out = 0
+        for _, shift in ipairs({ 16, 8, 0 }) do
+            local c = bit.band(bit.rshift(bg, shift), 0xff)
+            out = out + bit.lshift(math.floor(c + (toward - c) * amount + 0.5), shift)
+        end
+        return out
+    end
+    local function step(color)
+        local most = 0
+        for _, shift in ipairs({ 16, 8, 0 }) do
+            most = math.max(most, math.abs(bit.band(bit.rshift(color, shift), 0xff)
+                - bit.band(bit.rshift(bg, shift), 0xff)))
+        end
+        return most
+    end
+    local tint = shade(0, dark and 0.3 or 0.08)
+    if step(tint) < 4 then tint = shade(0xff, 0.1) end
+    vim.api.nvim_set_hl(0, 'FoyerTerminal', {
+        bg = tint,
+        ctermbg = dark and 233 or 253,
+        default = true,
+    })
 end
 set_default_hl()
 vim.api.nvim_create_autocmd('ColorScheme', { group = hl_group, callback = set_default_hl })
@@ -797,6 +827,43 @@ vim.api.nvim_create_autocmd('BufWinEnter', {
 })
 
 local term_bufs = {}
+
+-- FoyerTerminal as the Normal of the window a foyer terminal is in Terminal
+-- mode in, where keys go to the program rather than to foyer. Linked to
+-- Normal, windows are left alone: a link, unlike a cleared group, is the
+-- user's, and survives the default being set again on ColorScheme. Our entry
+-- goes last, where it wins over a Normal the window maps already, and comes
+-- out with the rest of 'winhighlight' as it was.
+local TERMINAL_HL = 'Normal:FoyerTerminal'
+local function mark_terminal(win, on)
+    local entries = vim.tbl_filter(function(e) return e ~= TERMINAL_HL and e ~= '' end,
+        vim.split(vim.wo[win].winhighlight, ',', { plain = true }))
+    local hl = vim.api.nvim_get_hl(0, { name = 'FoyerTerminal' })
+    if on and next(hl) and hl.link ~= 'Normal' then
+        table.insert(entries, TERMINAL_HL)
+    end
+    local value = table.concat(entries, ',')
+    if value ~= vim.wo[win].winhighlight then vim.wo[win].winhighlight = value end
+end
+local mode_hl_group = vim.api.nvim_create_augroup('foyer_terminal_mode', { clear = true })
+vim.api.nvim_create_autocmd({ 'TermEnter', 'TermLeave' }, {
+    group = mode_hl_group,
+    callback = function(ev)
+        if not vim.b[ev.buf].foyer_terminal then return end
+        if ev.event == 'TermEnter' then return mark_terminal(vim.api.nvim_get_current_win(), true) end
+        for _, win in ipairs(vim.fn.win_findbuf(ev.buf)) do mark_terminal(win, false) end
+    end,
+})
+-- A window opened from the marked one copies its options, the mark among them:
+-- a notification's float, say, opened while in Terminal mode. It, and any
+-- window the mark is left on when it takes another buffer, is cleared here.
+vim.api.nvim_create_autocmd('BufWinEnter', {
+    group = mode_hl_group,
+    callback = function(ev)
+        mark_terminal(vim.api.nvim_get_current_win(),
+            vim.b[ev.buf].foyer_terminal == true and vim.api.nvim_get_mode().mode == 't')
+    end,
+})
 
 -- The project root terminal {term} of foyer's was started for, or nil for a
 -- global one, which belongs to no project.
