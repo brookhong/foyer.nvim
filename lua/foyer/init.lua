@@ -993,6 +993,84 @@ vim.api.nvim_create_autocmd('TermClose', {
     end,
 })
 
+-- Quitting ends every terminal's program, an agent halfway through a task
+-- among them, without a word. Neovim cannot be told not to quit, but it will
+-- not quit with a buffer unsaved: while one of foyer's terminals is busy --
+-- working or waiting on the user by its own report, or printing still -- a
+-- buffer of foyer's is unsaved for the length of the quit, and the user told
+-- which. `:qa!` quits all the same.
+local BUSY_MS = 3000
+local guard_buf
+-- What the guard is holding the quit for, as the user is told it.
+local guard_reason
+
+local function guard()
+    if guard_buf and vim.api.nvim_buf_is_valid(guard_buf) then return guard_buf end
+    guard_buf = vim.api.nvim_create_buf(false, false)
+    vim.bo[guard_buf].buftype = 'acwrite'
+    vim.bo[guard_buf].bufhidden = 'hide'
+    vim.bo[guard_buf].swapfile = false
+    -- Written with :wqa, or a :confirm dialog's Yes: there is nothing to
+    -- write, and it stays unsaved -- say why the quit does not go on.
+    vim.api.nvim_create_autocmd('BufWriteCmd', {
+        buffer = guard_buf,
+        callback = function()
+            if guard_reason then vim.notify(guard_reason, vim.log.levels.WARN) end
+        end,
+    })
+    return guard_buf
+end
+
+-- What foyer's busy terminals are doing, one phrase each.
+local function busy_terminals()
+    local busy = {}
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        local job = vim.b[buf].foyer_terminal and vim.b[buf].terminal_job_id
+        if job and vim.fn.jobwait({ job }, 0)[1] == -1 and not M.is_idle(buf, BUSY_MS) then
+            local root = terminal_root(buf)
+            local status = program_status[buf]
+            table.insert(busy, ('%s · %s %s'):format(term_label(buf), root and vim.fs.basename(root) or 'global',
+                status and status.state == 'blocked' and 'is waiting for you' or 'is working'))
+        end
+    end
+    return busy
+end
+
+vim.api.nvim_create_autocmd('QuitPre', {
+    group = vim.api.nvim_create_augroup('foyer_quit_guard', { clear = true }),
+    callback = function()
+        if config.quit_guard == false then return end
+        local busy = busy_terminals()
+        if #busy == 0 then return end
+        local buf = guard()
+        guard_reason = ('foyer.nvim: %s; :qa! quits anyway, and ends %s'):format(
+            table.concat(busy, ', '), #busy == 1 and 'it' or 'them')
+        -- The name is what a :confirm dialog asks to save.
+        pcall(vim.api.nvim_buf_set_name, buf, 'foyer: ' .. table.concat(busy, ', '))
+        vim.bo[buf].modified = true
+        vim.v.errmsg = ''
+        -- A quit refused shows the unsaved buffer in the current window;
+        -- here it has nothing to show, and what the window had goes back.
+        local win, shown = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+        local alt = vim.fn.bufnr('#')
+        vim.schedule(function()
+            if vim.api.nvim_buf_is_valid(buf) then vim.bo[buf].modified = false end
+            if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf
+                and vim.api.nvim_buf_is_valid(shown) then
+                vim.api.nvim_win_set_buf(win, shown)
+                -- And CTRL-^ leads where it did, not to it.
+                if alt > 0 and vim.api.nvim_buf_is_valid(alt) and vim.api.nvim_get_current_win() == win then
+                    vim.fn.setreg('#', alt)
+                end
+            end
+            -- Only a quit that was refused: closing a window is no quit.
+            if vim.v.errmsg:match('^E37:') or vim.v.errmsg:match('^E162:') then
+                vim.notify(guard_reason, vim.log.levels.WARN)
+            end
+        end)
+    end,
+})
+
 local function init_term_buf(term_bufnr, win_id, prev_buf)
     -- Set for this buffer in this window only, so a borrowed window does not
     -- keep it once its own buffer is back.

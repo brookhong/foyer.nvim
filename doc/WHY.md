@@ -333,6 +333,9 @@ an agent to read. A shell would try to run them, so take them to the agent.
 - **`edit_selection()`** opens any visual selection in a floating scratch
   buffer and writes it back. Good for reworking a paragraph or a gnarly regex in
   isolation.
+- **A quit that would end a busy agent is refused.** `:qa` while one is
+  working or waiting for you says which, the way an unsaved file would;
+  `:qa!` quits anyway.
 - **Your keys stay yours.** A terminal foyer shows is in Normal mode, so a
   stray key doesn't land in the agent. While you do type into it, its window
   is tinted (`FoyerTerminal`).

@@ -118,6 +118,11 @@ notify ~
     Only a program that reports its state, such as pi, says so; see
     |FoyerStatus|. Defaults to `true`.
 
+quit_guard ~
+    Whether quitting Neovim is refused while a terminal of foyer's is busy:
+    reporting that it works or waits for you, or else printing still. The
+    error names it; `:qa!` quits anyway. Defaults to `true`.
+
 tabline ~
     Whether foyer draws the tab line, like Neovim's own with each tab page's
     mark from |foyer.tab_mark()| in front, when 'tabline' is empty. Defaults

@@ -55,6 +55,8 @@ until you are done with it here.
   tells you when it is done, waiting for you, or failed, in whatever project;
   the tab page it is in gets a mark until you go there, and the picker shows
   what each is doing. A `User FoyerStatus` event lets you take it further.
+- **Quitting doesn't end it** — `:qa` is refused while an agent is busy,
+  naming it; `:qa!` quits anyway.
 - **Your keys stay yours** — a terminal foyer shows is in Normal mode, so a
   stray key doesn't reach the agent, and while you do type into it its window
   is tinted.
