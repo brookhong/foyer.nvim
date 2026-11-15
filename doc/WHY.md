@@ -338,7 +338,8 @@ an agent to read. A shell would try to run them, so take them to the agent.
   `:qa!` quits anyway.
 - **Your keys stay yours.** A terminal foyer shows is in Normal mode, so a
   stray key doesn't land in the agent. While you do type into it, its window
-  is tinted (`FoyerTerminal`).
+  is tinted (`FoyerTerminal`), and once you send with `<CR>` and the agent
+  says it's working on it (pi does), you're back in Normal mode.
 - **Clean yanks from terminals.** The trailing whitespace a terminal pads every
   line with is stripped when you yank.
 - **`toggle_full_size()`** toggles any window to full screen and back, splits

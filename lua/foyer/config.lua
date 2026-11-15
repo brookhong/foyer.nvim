@@ -32,7 +32,7 @@ local default_keys = {
 local config = {
     commands = {}, root_markers = nil, bracketed_paste = true,
     picker_delay = 500, selection_max_lines = 40, mention = true, notify = true, tabline = false,
-    quit_guard = true,
+    quit_guard = true, normal_on_submit = true,
     -- foyer.jump(): the keys its hint labels are made of, the 'winblend' of
     -- the backdrop dimming the editor behind it (false: none), and what a key
     -- that is no label opens (nil: Telescope's oldfiles, or vim.ui.select).

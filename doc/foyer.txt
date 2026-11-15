@@ -118,6 +118,12 @@ notify ~
     Only a program that reports its state, such as pi, says so; see
     |FoyerStatus|. Defaults to `true`.
 
+normal_on_submit ~
+    Whether a prompt typed straight into a terminal and sent with <CR> takes
+    you back to Normal mode, on the last line, once its program reports it
+    is working on it. Only a program that reports its state, such as pi,
+    says so; see |FoyerStatus|. Defaults to `true`.
+
 quit_guard ~
     Whether quitting Neovim is refused while a terminal of foyer's is busy:
     reporting that it works or waits for you, or else printing still. The

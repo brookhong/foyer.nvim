@@ -59,7 +59,8 @@ until you are done with it here.
   naming it; `:qa!` quits anyway.
 - **Your keys stay yours** — a terminal foyer shows is in Normal mode, so a
   stray key doesn't reach the agent, and while you do type into it its window
-  is tinted.
+  is tinted; send there with `<CR>`, and you are back in Normal mode once the
+  agent says it's working.
 
 **Move around**
 

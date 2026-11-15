@@ -19,6 +19,9 @@ local last_output_time = {}
 -- What a terminal's program last reported of its state, for one that speaks
 -- the Program Status Protocol (OSC 7501): { state, message }.
 local program_status = {}
+-- When <CR> was last typed in Terminal mode in each of foyer's terminals: a
+-- run starting just after it is what the user sent, there and then.
+local entered = {}
 
 -- Terminals foyer started and that have not finished starting yet, with when
 -- they were started. A program reads nothing it is sent while it starts: it
@@ -795,6 +798,7 @@ local function setup_terminal_keymaps(buf)
             term_setup_done[buf] = nil
             last_output_time[buf] = nil
             program_status[buf] = nil
+            entered[buf] = nil
             tabline.forget(buf)
             last_used[buf] = nil
             starting[buf] = nil
@@ -911,6 +915,14 @@ end
 -- one is done, waiting on them, or failed, unless it is in view: then they
 -- see it themselves. Every change is also a `User FoyerStatus` event.
 local STATUS_REPLY = '\27]7501;?\27\\'
+local SUBMIT_MS = 1000
+local CR = vim.keycode('<CR>')
+vim.on_key(function(key, typed)
+    if key ~= CR and typed ~= CR then return end
+    if vim.api.nvim_get_mode().mode ~= 't' then return end
+    local buf = vim.api.nvim_get_current_buf()
+    if vim.b[buf].foyer_terminal then entered[buf] = vim.uv.now() end
+end, vim.api.nvim_create_namespace('foyer_submit'))
 local STATUS_NOTICE = {
     done = { 'is done', vim.log.levels.INFO },
     blocked = { 'is waiting for you', vim.log.levels.WARN },
@@ -967,6 +979,29 @@ vim.api.nvim_create_autocmd('TermRequest', {
         vim.schedule(function()
             if not vim.api.nvim_buf_is_valid(buf) then return end
             tabline.set(buf, state)
+            -- Sent from Terminal mode, with <CR> just now: back to Normal
+            -- mode, as a send from a prompt leaves it, and following the
+            -- reply from the last line. Not a run that starts of itself,
+            -- while the user may be typing the next message.
+            local sent = entered[buf]
+            entered[buf] = nil
+            if state == 'working' and sent and vim.uv.now() - sent < SUBMIT_MS
+                and config.normal_on_submit ~= false
+                and vim.api.nvim_get_current_buf() == buf and vim.api.nvim_get_mode().mode == 't' then
+                -- Once out of it: leaving puts the cursor on the terminal's.
+                -- Only out of this terminal, and now: one left some other
+                -- way, later, is none of this.
+                local asked = vim.uv.now()
+                vim.api.nvim_create_autocmd('ModeChanged', {
+                    pattern = 't:*',
+                    once = true,
+                    callback = function()
+                        if vim.api.nvim_get_current_buf() ~= buf or vim.uv.now() - asked > SUBMIT_MS then return end
+                        vim.schedule(function() follow(buf) end)
+                    end,
+                })
+                vim.cmd('stopinsert')
+            end
             local root = terminal_root(buf)
             local notice = STATUS_NOTICE[state]
             if notice and config.notify ~= false and not in_view(buf) then
