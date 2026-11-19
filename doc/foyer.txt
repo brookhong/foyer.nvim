@@ -171,10 +171,12 @@ prompts ~
 jump ~
     For |foyer.jump()|: `characters`, the keys its hint labels are made of
     (default `'asdfgqwertzxcvb'`), which also label the prompts <C-f> lists;
+    `max_entries`, how many entries it lists at most (default: one per
+    character, so each label is one key; more get labels of two);
     `backdrop`, the 'winblend' of the backdrop behind it, or `false` for none
     (default `60`); and `fallback`, a function for a key that is no label
     (default: Telescope's oldfiles if installed, else |vim.ui.select()| over
-    |v:oldfiles|).
+    the listed buffers and |v:oldfiles|).
 
                                                                   *foyer-opts*
                                                            *foyer.launch_info*
@@ -282,12 +284,14 @@ toggle_full_size()
 <
                                                                 *foyer.jump()*
 jump()
-    Jump to any tab, window, buffer or recent file by typing the hint label
+    Jump to a tab, window, buffer or recent file by typing the hint label
     drawn over it. Tab pages are laid out with their windows as on screen,
     then the buffers no window shows, by when they were last used, then
-    recent files, each name shortened to what tells it apart. A label goes to
-    a window, or opens a buffer or file in this one; with Shift, a window's
-    buffer comes into this window, and a buffer or file opens in a new tab.
+    recent files, each name shortened to what tells it apart, up to
+    `jump.max_entries`: the title says how many buffers were left out, and
+    the fallback reaches them. A label goes to a window, or opens a buffer or
+    file in this one; with Shift, a window's buffer comes into this window,
+    and a buffer or file opens in a new tab.
     <BS> starts the label again, <Esc> cancels, and any other key hands over
     to `jump.fallback`. Windows squeezed flat are left out, and so are
     foyer's own terminals from the buffers. >lua

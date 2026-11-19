@@ -68,8 +68,9 @@ another reason `names` is passed in as a parameter.
 
 ### Why two passes
 
-How many old files are shown depends on how many marks
-(`jump.characters`) Windows and Buffers have already used. That needs
+How many buffers and old files are shown depends on how many marks
+(`jump.max_entries`, by default one per `jump.characters`) Windows, and then
+Buffers, have already used. That needs
 Windows and Buffers built first, which needs names. But the names should also
 take old files into account. So:
 
@@ -299,7 +300,7 @@ only the paths that fit. A picked old file is still opened by its full path.
 - A name cut by `shorten` to fit loses its start, and with it maybe what told
   it apart; it is still picked by its label, which is what makes it unique.
 - Cost: for a group of `n` same-named entries whose paths have at most `d`
-  parts, the work is `O(n² · d)`. With at most `#jump.characters`
+  parts, the work is `O(n² · d)`. With at most `jump.max_entries`
   marks, that's negligible.
 
 ## Highlighting

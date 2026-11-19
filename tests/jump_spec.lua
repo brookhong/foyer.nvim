@@ -380,4 +380,70 @@ H.test('the one file left, hidden behind a terminal of foyer\'s, is still listed
 end)
 
 lone.stop()
+
+-- More buffers than there are keys, in two windows, with old files besides.
+local many = H.child([[
+    local foyer = require('foyer')
+    foyer.setup({})
+    vim.cmd('edit README.md | vsplit LICENSE')
+    for i = 1, 25 do vim.cmd(('badd /tmp/foyer-many-%02d.txt'):format(i)) end
+    vim.v.oldfiles = { vim.fn.getcwd() .. '/doc/foyer.txt' }
+    vim.keymap.set('n', '<F12>', foyer.jump)
+    function _G.titles()
+        local out = {}
+        for _, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+            local t = l:match('(%a[%a ]*|[%d/]+)')
+            if t then out[#out + 1] = t end
+        end
+        return out
+    end
+]] .. LABELS)
+
+local function picked()
+    many.type('<F12>', 400)
+    local labels = many.lua('return _G.labels()')
+    local titles = many.lua('return _G.titles()')
+    many.type('<Esc>')
+    return labels, titles
+end
+
+H.test('more buffers than keys: as many entries as keys, each label one key', function()
+    local labels, titles = picked()
+    H.eq(15, vim.tbl_count(labels), 'one entry per key: ' .. vim.inspect(labels))
+    for name, label in pairs(labels) do
+        H.eq(1, #label, name .. '\'s label')
+    end
+    H.ok(labels['README.md'], 'the other window first: ' .. vim.inspect(labels))
+    H.eq({ 'Windows|1', 'Buffers|14/25' }, titles, 'out of how many, and no room for old files')
+end)
+
+H.test('max_entries labels more, at the cost of two-key labels', function()
+    many.lua([[require('foyer').setup({ jump = { max_entries = 20 } })]])
+    local labels, titles = picked()
+    many.lua([[require('foyer.config').options.jump.max_entries = nil]])
+    H.eq(20, vim.tbl_count(labels), 'twenty: ' .. vim.inspect(labels))
+    H.ok(vim.iter(vim.tbl_values(labels)):any(function(l) return #l == 2 end), 'some of two keys')
+    H.eq({ 'Windows|1', 'Buffers|19/25' }, titles, 'titles')
+end)
+
+H.test('without Telescope, the fallback offers the buffers left out too', function()
+    many.lua([[
+        _G.offered = nil
+        vim.ui.select = function(items) _G.offered = items end
+    ]])
+    many.type('<F12>', 400)
+    many.type('j', 300)
+    local offered = many.lua('return _G.offered') or {}
+    local function has(tail)
+        return vim.iter(offered):any(function(f) return vim.endswith(f, tail) end)
+    end
+    H.eq(28, #offered, 'every buffer, then the old file: ' .. vim.inspect(offered))
+    for i = 1, 25 do
+        H.ok(has(('foyer-many-%02d.txt'):format(i)), ('buffer %02d offered'):format(i))
+    end
+    H.ok(has('/doc/foyer.txt'), 'the old file offered')
+    H.ok(vim.endswith(offered[#offered], '/doc/foyer.txt'), 'after the buffers')
+end)
+
+many.stop()
 H.finish()

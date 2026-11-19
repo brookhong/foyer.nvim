@@ -67,8 +67,8 @@ until you are done with it here.
 - `<C-o>` goes between an agent's prompt and its terminal, a half-written
   draft kept for each; `O` in a terminal opens its prompt above it instead,
   the answer still in view; `<C-t>` hops to the terminal you used before;
-  `jump()` labels every tab, window, buffer and recent file, foyer's agents
-  marked among them.
+  `jump()` puts a one-key label on your windows, the buffers you used last
+  and recent files, foyer's agents marked among them.
 
 **And also**
 

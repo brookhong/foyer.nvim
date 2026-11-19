@@ -250,7 +250,9 @@ local function listedBufs()
     end, vim.fn.getbufinfo { buflisted = true })
 end
 
-local buildLinesForBuffers = function(max_width, max_height, exclude, names)
+-- At most {limit} of them, the ones used last. Also returns how many there
+-- were to choose from.
+local buildLinesForBuffers = function(max_width, max_height, exclude, names, limit)
     local bufs = listedBufs()
     -- Only the buffer in front: it needs no label to go to.
     if #bufs == 1 and bufs[1].bufnr == api.nvim_get_current_buf() then
@@ -265,6 +267,11 @@ local buildLinesForBuffers = function(max_width, max_height, exclude, names)
     table.sort(bufs, function(a, b)
         return a.lastused > b.lastused
     end)
+    local all = #bufs
+    if limit <= 0 then
+        return {}, {}, 0
+    end
+    bufs = vim.list_slice(bufs, 1, limit)
 
     -- flat list in last-used order; names are unique (see uniqueDisplayNames),
     -- so no directory headings.
@@ -278,7 +285,7 @@ local buildLinesForBuffers = function(max_width, max_height, exclude, names)
     for i = 1, count do
         bufNrs[i] = bufs[i].bufnr
     end
-    return lines, bufNrs, count, hls, slots
+    return lines, bufNrs, count, hls, slots, all
 end
 
 local setTitle = function(lines, width, title)
@@ -649,13 +656,27 @@ end
 
 -- A key that is no label: hand over to something that searches every old
 -- file, `jump.fallback` if set, else Telescope's oldfiles if it is installed,
--- else vim.ui.select over v:oldfiles.
+-- which has this session's buffers too, else vim.ui.select over the listed
+-- buffers, used last first, then v:oldfiles: the buffers the picker had no
+-- room for are reached here.
 local function fallback()
     if config.jump.fallback then return config.jump.fallback() end
     local ok, builtin = pcall(require, 'telescope.builtin')
     if ok then return builtin.oldfiles() end
-    local files = vim.tbl_filter(function(f) return vim.fn.filereadable(f) == 1 end, vim.v.oldfiles)
-    vim.ui.select(files, { prompt = 'Old files' }, function(file)
+    local bufs = listedBufs()
+    table.sort(bufs, function(a, b) return a.lastused > b.lastused end)
+    local files, seen = {}, {}
+    local function add(f)
+        f = vim.fs.normalize(f)
+        if not seen[f] then seen[f], files[#files + 1] = true, f end
+    end
+    for _, b in ipairs(bufs) do
+        if b.name ~= '' and vim.bo[b.bufnr].buftype == '' then add(b.name) end
+    end
+    for _, f in ipairs(vim.v.oldfiles) do
+        if vim.fn.filereadable(f) == 1 then add(f) end
+    end
+    vim.ui.select(files, { prompt = 'Buffers and old files' }, function(file)
         if file then vim.cmd.edit(vim.fn.fnameescape(file)) end
     end)
 end
@@ -728,7 +749,10 @@ function M.open()
     end
 
     local tabLines, tabData, tabHls, tabSlots, tabWidth, tabHeight
-    local bufLines, bufData, bufTotal, bufHls, bufSlots, bufWidth, bufHeight
+    -- Every label one key, by default: windows first, then the buffers used
+    -- last, then recent files, up to that many. The rest is the fallback's.
+    local max_marks = config.jump.max_entries or #config.jump.characters
+    local bufLines, bufData, bufTotal, bufHls, bufSlots, bufAll, bufWidth, bufHeight
     local function buildTabsAndBuffers(names)
         tabLines, tabData, tabHls, tabSlots = buildLinesForTabs(names, max_width)
         tabWidth, tabHeight = 0, 0
@@ -744,7 +768,8 @@ function M.open()
         for _, w in ipairs(tabData) do
             exclude[api.nvim_win_get_buf(w.win)] = true
         end
-        bufLines, bufData, bufTotal, bufHls, bufSlots = buildLinesForBuffers(max_width, max_height - tabHeight, exclude, names)
+        bufLines, bufData, bufTotal, bufHls, bufSlots, bufAll =
+            buildLinesForBuffers(max_width, max_height - tabHeight, exclude, names, max_marks - #tabData)
         bufWidth, bufHeight = 0, 0
         if bufTotal > 0 then
             bufWidth, bufHeight = layout(bufLines, max_width)
@@ -754,7 +779,6 @@ function M.open()
     -- pass 1: names among buffers only, to know how many marks are left for old files
     local names = uniqueDisplayNames(nameBufs)
     buildTabsAndBuffers(names)
-    local max_marks = #(config.jump.characters)
     local markTotal = #tabData + bufTotal
     local oldPaths = {}
     if markTotal < max_marks and tabHeight + bufHeight < max_height then
@@ -821,7 +845,9 @@ function M.open()
         append(tabLines, tabData, "Windows|"..#tabData, tabHls, tabSlots)
     end
     if bufTotal > 0 then
-        append(bufLines, bufData, "Buffers|"..bufTotal, bufHls, bufSlots)
+        -- Out of how many, when some are left out.
+        local count = bufTotal < bufAll and bufTotal.."/"..bufAll or tostring(bufTotal)
+        append(bufLines, bufData, "Buffers|"..count, bufHls, bufSlots)
     end
     if #oldFilePaths > 0 then
         append(oldFileLines, oldFilePaths, "Old files|"..#oldFilePaths, oldFileHls, oldFileSlots)

@@ -347,8 +347,9 @@ an agent to read. A shell would try to run them, so take them to the agent.
   and floats alike; map it to a key of your own.
 - **`tab_switch()`** moves to the next window worth looking at, skipping the
   slivers a full-screen window leaves behind.
-- **`jump()`** labels every tab, window, buffer and recent file, laid out as
-  they sit on screen; type a label to go there. With Shift, a window's buffer
+- **`jump()`** labels your tabs and windows, laid out as they sit on screen,
+  then the buffers you used last and recent files, one key each; type a label
+  to go there, any other key to search the rest. With Shift, a window's buffer
   comes to you instead, and a buffer or file opens in a new tab. Names are
   just long enough to tell apart, and squeezed windows are left out.
 

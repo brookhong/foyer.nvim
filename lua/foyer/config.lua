@@ -34,10 +34,12 @@ local config = {
     commands = {}, root_markers = nil, bracketed_paste = true,
     picker_delay = 500, selection_max_lines = 40, mention = true, notify = true, tabline = false,
     quit_guard = true, normal_on_submit = true,
-    -- foyer.jump(): the keys its hint labels are made of, the 'winblend' of
-    -- the backdrop dimming the editor behind it (false: none), and what a key
-    -- that is no label opens (nil: Telescope's oldfiles, or vim.ui.select).
-    jump = { characters = 'asdfgqwertzxcvb', backdrop = 60, fallback = nil },
+    -- foyer.jump(): the keys its hint labels are made of, how many entries
+    -- it labels at most (nil: as many as there are keys, each label one key),
+    -- the 'winblend' of the backdrop dimming the editor behind it (false:
+    -- none), and what a key that is no label opens (nil: Telescope's
+    -- oldfiles, or vim.ui.select).
+    jump = { characters = 'asdfgqwertzxcvb', max_entries = nil, backdrop = 60, fallback = nil },
     keys = vim.deepcopy(default_keys),
     -- Prompts of the user's own, by `commands` key, listed first in that
     -- terminal's <C-f> picker, in the order given.
