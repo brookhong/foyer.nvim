@@ -267,7 +267,8 @@ has gone quiet, you get a fresh prompt for the next request. One key does both,
 based on what the agent is doing right now.
 
 Seen enough? `<CR>` puts the terminal away. Want to start on your follow-up
-while it works? `<C-o>` takes you to the prompt.
+while it works? `<C-o>` takes you to the prompt. Want to read the answer as you
+reply to it? `O` opens the prompt in a split above the terminal instead.
 
 Better still, don't check at all. An agent that reports its state, such as pi,
 tells foyer when it's working, waiting for you, done or failed, and foyer

@@ -14,11 +14,30 @@ local function clear_foyer_matches(win_id)
     end
 end
 
+-- The prompt split above terminal window {below}, if open.
+local function prompt_above(below)
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(vim.api.nvim_win_get_tabpage(below))) do
+        if vim.w[win].foyer_above == below then return win end
+    end
+end
+
+-- A window in this tab page showing {buf}, if any.
+local function shown_here(buf)
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if vim.api.nvim_win_get_buf(win) == buf then return win end
+    end
+end
+
 -- Put away a window this plugin opened, then drop {bufnr} if given. A float
 -- or a split is the plugin's own and simply closes; a window the plugin only
 -- borrowed -- the user's, with a prompt put in it -- is handed back the buffer
 -- it was showing, since closing it would take the user's layout with it.
 local function dismiss(win_id, bufnr)
+    -- A prompt split above it goes first; one that is itself that split
+    -- hands the cursor back to the terminal below.
+    local above = vim.api.nvim_win_is_valid(win_id) and prompt_above(win_id)
+    if above then vim.api.nvim_win_close(above, true) end
+    local below = vim.api.nvim_win_is_valid(win_id) and vim.w[win_id].foyer_above or nil
     if vim.api.nvim_win_is_valid(win_id) then
         local back = vim.w[win_id].foyer_return_buf
         if back == nil then
@@ -54,6 +73,9 @@ local function dismiss(win_id, bufnr)
         end
         vim.api.nvim_buf_delete(bufnr, { force = true })
     end
+    if below and vim.api.nvim_win_is_valid(below) and not vim.api.nvim_win_is_valid(win_id) then
+        vim.api.nvim_set_current_win(below)
+    end
 end
 
 -- The frame names what the window is showing: a float wears it on its border,
@@ -81,9 +103,9 @@ end
 
 local active_cmd_wins = {}
 
--- What kind of window a {type} opens: 'split', 'current', or 'float'.
+-- What kind of window a {type} opens: 'split', 'current', 'above' or 'float'.
 local function window_kind(type)
-    if type == 'split' or type == 'current' then return type end
+    if type == 'split' or type == 'current' or type == 'above' then return type end
     return 'float'
 end
 
@@ -111,12 +133,13 @@ local function is_foyer_window(win)
 end
 
 -- foyer's window for {term}, showing it or a prompt for it, in another tab
--- page -- none if this one has one already.
+-- page -- none if this one has one already. A prompt split above a terminal
+-- is not one: it goes with the terminal's window.
 local function window_elsewhere(term)
     local here = vim.api.nvim_get_current_tabpage()
     local found
     for _, win in ipairs(vim.api.nvim_list_wins()) do
-        if is_foyer_window(win) and window_term(win) == term then
+        if is_foyer_window(win) and not vim.w[win].foyer_above and window_term(win) == term then
             if vim.api.nvim_win_get_tabpage(win) == here then return nil end
             found = found or win
         end
@@ -129,6 +152,8 @@ end
 -- its tab page, which closing would take along, when it is left empty and
 -- the user's.
 local function release(win)
+    local above = prompt_above(win)
+    if above then vim.api.nvim_win_close(above, true) end
     clear_foyer_matches(win)
     vim.w[win].foyer_prompt = nil
     local back = vim.w[win].foyer_return_buf
@@ -235,10 +260,67 @@ end
 -- new terminal's own prompt -- the one parked there for it before, or a
 -- fresh one.
 -- {opts.float} overrides the config a float is opened with.
+--
+-- {type} 'above' splits the current window -- a terminal -- for its prompt,
+-- above it: {opts.prompt}, draft and all, if it is that terminal's and shown
+-- nowhere, else a fresh one. Never reused, nor moved between tab pages.
 local function create_window(type, title, on_ready, opts)
     opts = opts or {}
     local term = opts.term
     local kind = window_kind(type)
+    if kind == 'above' then
+        local below = vim.api.nvim_get_current_win()
+        local draft = opts.prompt
+        if not (draft and vim.api.nvim_buf_is_valid(draft) and vim.b[draft].foyer_term == term
+            and #vim.fn.win_findbuf(draft) == 0) then
+            draft = nil
+        end
+        local bufnr = draft or new_cmd_buf()
+        -- Half of the terminal's window, as <C-w>s splits it.
+        local ok, win_id = pcall(vim.api.nvim_open_win, bufnr, true, {
+            split = 'above', win = below, height = math.floor(vim.api.nvim_win_get_height(below) / 2),
+        })
+        if not ok then
+            if not draft then vim.api.nvim_buf_delete(bufnr, { force = true }) end
+            vim.notify('foyer.nvim: no room for a prompt above the terminal', vim.log.levels.WARN)
+            return
+        end
+        vim.w[win_id].foyer_own = true
+        vim.w[win_id].foyer_above = below
+        -- Only the prompt is ever shown in it.
+        vim.wo[win_id].winfixbuf = true
+        -- The terminal's prompt now, for its <C-o> and its close keys.
+        vim.w[below].foyer_prompt = bufnr
+        set_window_title(win_id, title)
+        vim.wo[win_id][0].relativenumber = true
+        vim.wo[win_id][0].cursorline = true
+        -- It lives only while its terminal is shown below it. Checked once
+        -- the change is done: no window may close while one is closing.
+        local group = vim.api.nvim_create_augroup('foyer_above_' .. win_id, { clear = true })
+        local function check()
+            if not vim.api.nvim_win_is_valid(win_id) then
+                return pcall(vim.api.nvim_del_augroup_by_id, group)
+            end
+            local paired = vim.b[vim.api.nvim_win_get_buf(win_id)].foyer_prompt
+            if paired and vim.api.nvim_win_is_valid(below) and vim.api.nvim_win_get_buf(below) == term then
+                return
+            end
+            pcall(vim.api.nvim_del_augroup_by_id, group)
+            -- Forced to show a file (:edit!), or the last window left: no
+            -- longer a split above anything, but an ordinary window.
+            if not paired or not pcall(vim.api.nvim_win_close, win_id, true) then
+                vim.wo[win_id].winfixbuf = false
+                vim.w[win_id].foyer_above = nil
+                if not paired then vim.w[win_id].foyer_own = nil end
+            end
+        end
+        vim.api.nvim_create_autocmd({ 'WinClosed', 'BufWinEnter' }, {
+            group = group,
+            callback = function() vim.schedule(check) end,
+        })
+        if on_ready then on_ready(bufnr, win_id, draft ~= nil) end
+        return
+    end
     local tracked = term ~= nil and kind ~= 'current'
     local reuse = tracked and active_cmd_wins[kind] or nil
     if reuse and not vim.api.nvim_win_is_valid(reuse) then reuse = nil end
@@ -282,9 +364,16 @@ local function create_window(type, title, on_ready, opts)
             -- The terminal, left by a send or looked at with <C-o>: its
             -- prompt is behind it, empty after a send, a draft before one.
             local prompt = vim.w[reuse].foyer_prompt
-            if prompt and vim.api.nvim_buf_is_valid(prompt) and vim.b[prompt].foyer_term == term
-                and #vim.fn.win_findbuf(prompt) == 0 then
-                back = prompt
+            if prompt and vim.api.nvim_buf_is_valid(prompt) and vim.b[prompt].foyer_term == term then
+                -- Open already in a window here -- a split above the
+                -- terminal: that is where it is, draft and all.
+                local open = shown_here(prompt)
+                if open then
+                    vim.api.nvim_set_current_win(open)
+                    if on_ready then on_ready(prompt, open, true) end
+                    return
+                end
+                if #vim.fn.win_findbuf(prompt) == 0 then back = prompt end
             end
         end
     elseif reuse then
@@ -404,6 +493,8 @@ local function tracked_kind(win_id)
 end
 
 M.tracked_kind = tracked_kind
+M.prompt_above = prompt_above
+M.shown_here = shown_here
 M.is_foyer_window = is_foyer_window
 M.clear_foyer_matches = clear_foyer_matches
 M.dismiss = dismiss

@@ -1137,13 +1137,30 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
     map(term_bufnr, 'terminal', 'prompt', function(_, lhs)
         return function()
             local prompt = vim.w.foyer_prompt
-            if prompt and vim.api.nvim_buf_is_valid(prompt) then
+            local open = prompt and window.shown_here(prompt)
+            if open then
+                -- Open already, in a split above: go there.
+                vim.api.nvim_set_current_win(open)
+            elseif prompt and vim.api.nvim_buf_is_valid(prompt) then
                 vim.api.nvim_set_current_buf(prompt)
             else
                 vim.api.nvim_feedkeys(vim.v.count1 .. vim.keycode(lhs), 'n', false)
             end
         end
     end, { build = true })
+
+    -- The prompt in a split above, the terminal left in view below it: the
+    -- window's own, draft and all, or a fresh one. One open already is gone
+    -- to rather than stacked on. In any window showing the terminal.
+    map(term_bufnr, 'terminal', 'split_prompt', function()
+        local below = vim.api.nvim_get_current_win()
+        local above = window.prompt_above(below)
+        if above then return vim.api.nvim_set_current_win(above) end
+        local key = vim.b[term_bufnr].foyer_key
+        if key then
+            M.send_terminal_command(key, { above = { term = term_bufnr, prompt = vim.w[below].foyer_prompt } })
+        end
+    end)
 
     -- cd the terminal to its project's root, wherever it has wandered off
     -- to: the one it was started for, not wherever the editor is now. A
@@ -1187,11 +1204,17 @@ local function init_command_buf_shared(bufnr, lines, on_enter)
     -- from: to look at what it has said before writing to it. Only that: the
     -- window's alternate buffer and jump list lead to the file the prompt was
     -- opened from, which has no place in here. A buffer with no terminal of
-    -- its own -- edit_selection()'s -- ignores the key.
+    -- its own -- edit_selection()'s -- ignores the key. Split above the
+    -- terminal, the prompt goes down to it instead.
     map(bufnr, 'prompt', 'terminal', function()
         local term = vim.b[bufnr].foyer_term
         if not (term and vim.api.nvim_buf_is_valid(term)) then return end
         local win = vim.api.nvim_get_current_win()
+        local below = vim.w[win].foyer_above
+        if below then
+            if vim.api.nvim_win_is_valid(below) then vim.api.nvim_set_current_win(below) end
+            return
+        end
         vim.api.nvim_set_current_buf(term)
         set_window_title(win, vim.b[bufnr].foyer_term_title or get_term_name(term))
         init_term_buf(term, win, bufnr)
@@ -1363,13 +1386,23 @@ local function init_command_buf(bufnr, win_id, lines, on_command_input, opts)
         local cmd = buffer_text(bufnr)
         log_command(cmd, opts.term)
         local new_buf = on_command_input(cmd)
-        if new_buf then
+        -- Split above the terminal it went to: the split closes, and the
+        -- terminal below, in view all along, takes the cursor.
+        local below = vim.w[win_id].foyer_above
+        if new_buf and below then
+            vim.api.nvim_win_close(win_id, true)
+            if vim.api.nvim_win_is_valid(below) then vim.api.nvim_set_current_win(below) end
+            vim.cmd('stopinsert')
+            follow(new_buf)
+        elseif new_buf then
             vim.api.nvim_set_current_buf(new_buf)
             -- The prompt has left this window; the frame should stop
             -- advertising it and name the terminal now sitting there, the
             -- way the caller named it if it did.
             set_window_title(win_id, opts.term_title or get_term_name(new_buf))
             init_term_buf(new_buf, win_id, bufnr)
+        end
+        if new_buf then
             -- What was sent is gone, so the prompt <C-o> comes back to is
             -- ready for the next one: empty, and carrying no selection, which
             -- would otherwise ride along with a follow-up unseen. History has
@@ -1501,6 +1534,9 @@ function M.send_terminal_command(term_key, opts)
     local entry = resolve_command(term_key, root, opts.launch_info)
     local bucket = entry_bucket(entry, root)
     local target_buf = term_bufs[bucket] and term_bufs[bucket][term_key] or nil
+    -- The terminal the split_prompt key was pressed in, whatever the key
+    -- would find from here.
+    if opts.above and vim.api.nvim_buf_is_valid(opts.above.term) then target_buf = opts.above.term end
 
     if target_buf and not vim.api.nvim_buf_is_valid(target_buf) then
         term_bufs[bucket][term_key] = nil
@@ -1547,7 +1583,10 @@ function M.send_terminal_command(term_key, opts)
         -- Any other's opens where the call asks, else where its entry does: a
         -- call knows best, <C-t> staying in the window it was pressed in.
         local win_type = 'current'
-        if not entry_is_global(entry) then
+        if opts.above then
+            -- From a terminal's split_prompt key, see init_term_buf().
+            win_type = 'above'
+        elseif not entry_is_global(entry) then
             -- 'float' alone is a float; anything else, or nothing, a split.
             win_type = (opts.win_type or entry_win_type(entry)) == 'float' and 'float' or 'split'
         end
@@ -1570,9 +1609,13 @@ function M.send_terminal_command(term_key, opts)
             -- ref, seed and history have to reach the buffer rather than the
             -- closure that set the window up.
             if reused then
-                vim.b[bufnr].foyer_selection = selection_appendix(opts)
-                vim.b[bufnr].foyer_title = title
-                set_window_title(win_id, title)
+                -- The draft brought up above its terminal keeps what it
+                -- carries: this send carries nothing of its own.
+                if not opts.above then
+                    vim.b[bufnr].foyer_selection = selection_appendix(opts)
+                    vim.b[bufnr].foyer_title = title
+                end
+                set_window_title(win_id, vim.b[bufnr].foyer_title or title)
                 -- A draft in there is the user's and stays. An empty buffer has
                 -- nothing to lose, so a seeded command still gets its chance
                 -- rather than going missing without a word.
@@ -1581,6 +1624,7 @@ function M.send_terminal_command(term_key, opts)
                 end
                 attach_history(bufnr, target_buf)
                 attach_mention(bufnr)
+                if opts.above then insert_at_end(bufnr, win_id) end
                 if opts.show_terminal then
                     -- The prompt is ready behind it; the terminal is what was
                     -- asked for.
@@ -1603,8 +1647,8 @@ function M.send_terminal_command(term_key, opts)
                 attach_mention(bufnr)
             end
             -- Mid-output, or asked to show it, the terminal takes the window
-            -- instead of a prompt.
-            if opts.show_terminal or not M.is_idle(target_buf, 2000) then
+            -- instead of a prompt -- but for one split above it, in view.
+            if not opts.above and (opts.show_terminal or not M.is_idle(target_buf, 2000)) then
                 -- A ref with no prompt to ride on goes nowhere. Say so, and
                 -- let the frame name what is actually in there.
                 if opts.selection then
@@ -1625,8 +1669,10 @@ function M.send_terminal_command(term_key, opts)
             end
             vim.b[bufnr].foyer_selection = selection_appendix(opts)
             vim.b[bufnr].foyer_title = title
-            init_prompt(opts.selection ~= nil or not is_blank(command or ""))
-        end, { term = target_buf })
+            init_prompt(opts.above ~= nil or opts.selection ~= nil or not is_blank(command or ""))
+        end, { term = target_buf, prompt = opts.above and opts.above.prompt })
+        -- Shorter now, it shows the newest output still.
+        if opts.above then follow(target_buf) end
         -- In use here, now: a fresh prompt's BufEnter came before it was
         -- told which terminal it is for.
         tabline.remember(target_buf)

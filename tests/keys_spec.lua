@@ -54,7 +54,7 @@ H.test('the defaults are mapped', with({}, function()
         H.ok(not mapped(buf, 'i', lhs), 'Insert-mode ' .. lhs .. ' left to completion')
     end
     local term = terminal()
-    for _, lhs in ipairs({ '<C-t>', '<C-o>', '<CR>', '<C-c>', '<Esc>', '<C-r>' }) do
+    for _, lhs in ipairs({ '<C-t>', '<C-o>', 'O', '<CR>', '<C-c>', '<Esc>', '<C-r>' }) do
         H.ok(mapped(term, 'n', lhs), 'terminal n ' .. lhs)
     end
 end))
@@ -99,11 +99,12 @@ H.test('a table by mode names the modes itself', with({
 end))
 
 H.test('false maps nothing', with({
-    terminal = { cd_root = false, switch = false },
+    terminal = { cd_root = false, switch = false, split_prompt = false },
 }, function()
     local term = terminal()
     H.ok(not mapped(term, 'n', '<C-r>'), 'no <C-r>')
     H.ok(not mapped(term, 'n', '<C-t>'), 'no <C-t>')
+    H.ok(not mapped(term, 'n', 'O'), 'no O')
 end))
 
 -- What setup() says about {keys}, if anything.

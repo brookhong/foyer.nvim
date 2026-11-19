@@ -24,6 +24,7 @@ local default_keys = {
     terminal = {
         switch = { n = '<C-t>' },
         prompt = { n = '<C-o>' },
+        split_prompt = { n = 'O' },
         close = { n = { '<CR>', '<C-c>', '<Esc>' } },
         cd_root = { n = '<C-r>' },
     },

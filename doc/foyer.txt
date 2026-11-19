@@ -154,6 +154,7 @@ keys ~
             terminal = {
                 switch = { n = '<C-t>' },
                 prompt = { n = '<C-o>' },
+                split_prompt = { n = 'O' },
                 close = { n = { '<CR>', '<C-c>', '<Esc>' } },
                 cd_root = { n = '<C-r>' },
             },
@@ -402,7 +403,13 @@ where every key is the program's:
     <C-r>              n   cd to the terminal's project root (`cd_root`)
     <C-o>              n   Back to the prompt the terminal was shown for;
                            elsewhere, Vim's |CTRL-O| (`prompt`)
+    O                  n   The prompt in a split above, the terminal kept
+                           in view (`split_prompt`)
     <CR>, <C-c>, <Esc> n   Close the terminal window (`close`)
+
+The split starts in Insert mode, with the draft <C-o> would show, if any.
+It holds only the prompt, and closes with the terminal's window. Sending
+closes it; <C-o> goes between it and the terminal below.
 
 Yanking in a terminal strips the trailing whitespace a terminal pads lines
 with. A terminal foyer has shown or sent to keeps its newest output in view.
