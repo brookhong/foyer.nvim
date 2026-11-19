@@ -1918,16 +1918,27 @@ function M.switch_terminal()
     end
 end
 
+-- Run {fn} with register a, the unnamed register pointing where it did, put
+-- back as they were after it: edit_selection() goes through a, and what the
+-- user keeps there stays.
+local function keeping_registers(fn)
+    local a, unnamed = vim.fn.getreginfo('a'), vim.fn.getreginfo('"')
+    local ok, err = pcall(fn)
+    vim.fn.setreg('a', a)
+    vim.fn.setreg('"', unnamed)
+    if not ok then error(err, 0) end
+end
+
 function M.edit_selection()
     local mode = vim.fn.mode()
-    if mode == 'v' or mode == 'V' or mode == '\22' then  -- visual, visual-line, or visual-block mode
+    if not (mode == 'v' or mode == 'V' or mode == '\22') then return end
+    local adata
+    keeping_registers(function()
         vim.cmd('normal! "ay')
-    else
-        return
-    end
+        adata = vim.fn.getreg('a')
+    end)
     local filetype = vim.bo[0].filetype
     local width = vim.o.columns - 32
-    local adata = vim.fn.getreg('a')
     -- A linewise yank ends in a newline, which would seed a blank last line.
     -- Only linewise: a charwise selection that happens to end at a line break
     -- really does include that empty line.
@@ -1937,9 +1948,12 @@ function M.edit_selection()
     create_window('float', 'Edit selection', function(bufnr, win_id)
         vim.bo[bufnr].filetype = filetype
         init_command_buf_shared(bufnr, lines, function()
-            vim.cmd('normal! gg0' .. mode .. 'G$"ay')
-            dismiss(win_id, bufnr)
-            vim.cmd('normal! gv"ap')
+            -- P, not p: the text it replaces goes into no register either.
+            keeping_registers(function()
+                vim.cmd('normal! gg0' .. mode .. 'G$"ay')
+                dismiss(win_id, bufnr)
+                vim.cmd('normal! gv"aP')
+            end)
         end)
     end, { float = { height = height, width = width } })
 end

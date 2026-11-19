@@ -207,7 +207,7 @@ Command {opts} accepted by |foyer.terminal_command()| and
     win_type      `'float'` for a float; otherwise a split. Wins over the
                   terminal's own `win_type`; ignored for a global terminal.
     auto_start    Spawn the terminal if it does not exist yet, see
-                  |foyer-limitations|.
+                  |foyer-sending|.
     launch_info   See |foyer.launch_info|.
 
 |foyer.terminal_command()| also accepts:
@@ -241,6 +241,15 @@ in another tab page moves to this one, draft and all. A terminal still
 producing output is shown instead of a prompt, see |foyer.is_idle()|, and a
 selection is then dropped, with a notice.
 
+                                                               *foyer-sending*
+A send to a terminal still starting waits until it is ready, with a notice;
+its prompt opens at once, so the writing does not wait. A terminal's first
+prompt gets its Enter only once its text shows on screen. A program that
+starts on a question of its own -- trust this folder, a login -- is never
+answered for you: foyer says so, and sends no Enter, nor anything queued
+after it. Answer the question in the terminal; the prompt is in history, one
+<Up> away.
+
 ==============================================================================
 4. API                                                             *foyer-api*
 
@@ -271,8 +280,7 @@ switch_terminal()
                                                       *foyer.edit_selection()*
 edit_selection()
     Open the current visual selection in a floating buffer and replace the
-    selection with the result. Must be called from Visual mode. Uses register
-    a as the transport.
+    selection with the result. Must be called from Visual mode.
 
                                                     *foyer.toggle_full_size()*
 toggle_full_size()
@@ -455,16 +463,8 @@ colorscheme change clears them.
 ==============================================================================
 7. LIMITATIONS                                             *foyer-limitations*
 
-- A send to a terminal that is still starting waits until it is ready, with
-  a notice. Prompts open at once, so the writing does not wait.
-- A terminal's first prompt gets its Enter only once its text shows on
-  screen. A program that starts on a question of its own -- trust this
-  folder, a login -- is never answered for you: foyer says so, and the prompt
-  is in history, one <Up> away.
 - A send of many lines is wrapped in bracketed paste, so the program takes
   its newlines as text, not Enter. Set `bracketed_paste = false` for one that
   shows the `[200~` escapes instead.
-- |foyer.edit_selection()| goes through register a.
-- Timings and the register are hardcoded.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

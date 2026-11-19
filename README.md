@@ -168,8 +168,9 @@ and lines.
 
 The full reference — every option, the API, the keys in foyer's windows,
 highlights and limitations — is in Neovim: `:help foyer`, or
-[doc/foyer.txt](doc/foyer.txt). Why foyer works the way it does is in
-[doc/WHY.md](doc/WHY.md) ([中文](doc/WHY.zh-CN.md)).
+[doc/foyer.txt](doc/foyer.txt). Why foyer works the way it does, as a day
+across projects, is in [this post](https://brookhong.github.io/2026/10/25/use-your-favorite-coding-agent-cli-with-foyer.nvim-in-neovim.html)
+([中文](https://brookhong.github.io/2026/10/25/use-your-favorite-coding-agent-cli-with-foyer.nvim-in-neovim-cn.html)).
 
 ## License
 
