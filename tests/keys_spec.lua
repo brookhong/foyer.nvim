@@ -8,7 +8,7 @@ vim.cmd('edit README.md')
 local file = vim.api.nvim_get_current_buf()
 
 local function prompt()
-    H.press(function() foyer.terminal_command({ key = 'q' }) end)
+    H.press(function() foyer.prompt({ key = 'q' }) end)
     return H.state().buf
 end
 
@@ -99,7 +99,7 @@ H.test('a table by mode names the modes itself', with({
 end))
 
 H.test('false maps nothing', with({
-    terminal = { cd_root = false, switch = false, split_prompt = false },
+    terminal = { cd_root = false, alternate = false, split_prompt = false },
 }, function()
     local term = terminal()
     H.ok(not mapped(term, 'n', '<C-r>'), 'no <C-r>')

@@ -23,7 +23,7 @@ local child = H.child([[
         vim.cmd('stopinsert | silent! only')
         vim.api.nvim_set_current_buf(_G.readme)
         vim.api.nvim_win_set_cursor(0, { 5, 0 })
-        foyer.terminal_command({ key = key or 'q' })
+        foyer.prompt({ key = key or 'q' })
     end
 ]])
 local root = H.root

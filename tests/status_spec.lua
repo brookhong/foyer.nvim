@@ -36,7 +36,7 @@ local child = H.child(([[
         table.insert(_G.events, ev.data)
     end })
     -- Started, and its prompt put away: the terminal is in no window.
-    foyer.terminal_command({ key = 's', auto_start = true })
+    foyer.prompt({ key = 's', auto_start = true })
     vim.cmd('stopinsert')
     vim.api.nvim_win_close(0, true)
     for _, b in ipairs(vim.api.nvim_list_bufs()) do
@@ -111,7 +111,7 @@ H.test('the picker shows the state', function()
             end
             return 27
         end
-        require('foyer').terminal_command()
+        require('foyer').prompt()
         vim.fn.getchar = getchar
         return seen
     ]])
@@ -127,8 +127,8 @@ H.test('in view, nothing is told', function()
     child.lua('vim.api.nvim_set_current_buf(_G.file)')
 end)
 
-H.test('with notify = false, nothing is told, and the event still comes', function()
-    child.lua('require("foyer").setup({ notify = false })')
+H.test('with notify_status = false, nothing is told, and the event still comes', function()
+    child.lua('require("foyer").setup({ notify_status = false })')
     report('working')
     report('done')
     H.eq({}, notices(), 'notices')

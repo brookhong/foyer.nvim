@@ -17,7 +17,7 @@ vim.cmd('edit README.md')
 local file = vim.api.nvim_get_current_buf()
 
 local function prompt(opts)
-    H.press(function() foyer.terminal_command(vim.tbl_extend('force', { key = 'q' }, opts or {})) end)
+    H.press(function() foyer.prompt(vim.tbl_extend('force', { key = 'q' }, opts or {})) end)
 end
 
 H.test('the prompt opens in a split by default, titled with the terminal', function()
@@ -291,7 +291,7 @@ H.test('own prompts with no history yet still open the picker', function()
     -- A terminal never sent to: w, in a fresh buffer.
     foyer.setup({ commands = { w = H.quiet }, prompts = { w = { 'hello there' } } })
     H.reset(file)
-    H.press(function() foyer.terminal_command({ key = 'w' }) end)
+    H.press(function() foyer.prompt({ key = 'w' }) end)
     vim.cmd('stopinsert')
     answers({ 'a' })
     H.feed('<C-f>')
@@ -439,10 +439,10 @@ end)
 H.test('a busy terminal shows itself; <C-o> reaches a working prompt', function()
     H.reset(file)
     -- Spawn it and let it come up and start printing.
-    foyer.terminal_command({ key = 'n', command = ':' })
+    foyer.prompt({ key = 'n', command = ':' })
     H.wait(1500)
     H.reset(file)
-    H.press(function() foyer.terminal_command({ key = 'n' }) end)
+    H.press(function() foyer.prompt({ key = 'n' }) end)
     H.ok(H.state().terminal, 'busy: the terminal is shown')
     vim.cmd('stopinsert')
     H.feed('<C-o>')
@@ -454,11 +454,11 @@ end)
 H.test('a terminal\'s own win_type places its prompt, unless the call names one', function()
     foyer.setup({ commands = { s = vim.tbl_extend('force', H.quiet, { win_type = 'float' }) } })
     H.reset(file)
-    H.press(function() foyer.terminal_command({ key = 's' }) end)
+    H.press(function() foyer.prompt({ key = 's' }) end)
     H.ok(H.state().prompt and H.state().float, 'a prompt in a float')
     vim.cmd('stopinsert')
     H.reset(file)
-    H.press(function() foyer.terminal_command({ key = 's', win_type = 'split' }) end)
+    H.press(function() foyer.prompt({ key = 's', win_type = 'split' }) end)
     local s = H.state()
     H.ok(s.prompt and not s.float, 'the call\'s split wins')
     vim.cmd('stopinsert')
@@ -588,7 +588,7 @@ end)
 
 H.test('a split taken over for a file is left to it, and its successor kept', function()
     H.reset(file)
-    local function split() H.press(function() foyer.terminal_command({ key = 'q', win_type = 'split' }) end) end
+    local function split() H.press(function() foyer.prompt({ key = 'q', win_type = 'split' }) end) end
     split()
     local taken = H.state().win
     vim.cmd('stopinsert | edit LICENSE')
@@ -609,7 +609,7 @@ for _, win_type in ipairs({ 'float', 'split' }) do
     H.test(win_type .. ': after a send, <C-o> finds the prompt empty and the selection gone', function()
         H.reset(file)
         -- A selection, so there is something that must not ride along again.
-        H.press(function() foyer.terminal_command({ key = 'q', win_type = win_type }) end, '3GV')
+        H.press(function() foyer.prompt({ key = 'q', win_type = win_type }) end, '3GV')
         local prompt_buf = H.state().buf
         H.ok(H.state().title:find('+ README.md:3', 1, true), 'the selection advertised: ' .. H.state().title)
         H.send('first question')
@@ -660,7 +660,7 @@ H.test('<C-o> twice in a row leaves the prompt in Normal mode, where it was', fu
         foyer.setup({ commands = { q = { 'sh', '-c "echo up; cat >/dev/null"' } } })
         foyer.is_idle = function() return true end
         vim.cmd('edit README.md')
-        foyer.terminal_command({ key = 'q' })
+        foyer.prompt({ key = 'q' })
     ]])
     -- Not <Esc>: on an empty draft that closes the prompt. Time for the
     -- terminal to come up instead.

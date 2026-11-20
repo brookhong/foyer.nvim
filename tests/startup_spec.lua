@@ -66,14 +66,14 @@ local function wait_for(name, line)
 end
 
 H.test('auto_start with a command waits for the agent, then sends it', function()
-    foyer.send_terminal_command('a', { auto_start = true, command = 'from auto_start' })
+    foyer.send('a', { auto_start = true, command = 'from auto_start' })
     H.eq({ 'ready', "got b'from auto_start\\r'" }, wait_for('a', "got b'from auto_start\\r'"), 'agent log')
     H.ok(vim.tbl_contains(notes, 'foyer.nvim: waiting for python3 to start'), 'said it was waiting: ' .. vim.inspect(notes))
 end)
 
 H.test('a prompt sent on first use, before the agent is up, still arrives', function()
     H.reset(file)
-    H.press(function() foyer.terminal_command({ key = 'b' }) end)
+    H.press(function() foyer.prompt({ key = 'b' }) end)
     H.ok(H.state().prompt, 'the prompt opens at once')
     H.send('from the prompt', true)
     H.ok(not vim.tbl_contains(received('b'), 'ready'), 'sent while the agent was still starting')
@@ -84,7 +84,7 @@ end)
 
 H.test('once the agent is up, a send goes straight to it', function()
     notes = {}
-    foyer.send_terminal_command('a', { command = 'already up' })
+    foyer.send('a', { command = 'already up' })
     H.ok(vim.tbl_contains(wait_for('a', "got b'already up\\r'"), "got b'already up\\r'"), 'received')
     H.eq({}, notes, 'no waiting')
 end)
@@ -92,7 +92,7 @@ end)
 H.test('a program that draws nothing is not waited on for long', function()
     local t0 = vim.uv.now()
     H.sent_clear()
-    foyer.send_terminal_command('s', { auto_start = true, command = 'hello' })
+    foyer.send('s', { auto_start = true, command = 'hello' })
     vim.wait(8000, function() return H.last_text() == 'hello\r' end, 50)
     H.eq('hello\r', H.last_text(), 'sent')
     local took = vim.uv.now() - t0
@@ -102,7 +102,7 @@ end)
 H.test('an agent that comes up on a question gets no Enter, only a notice', function()
     notes = {}
     H.reset(file)
-    H.press(function() foyer.terminal_command({ key = 'd' }) end, '3GV')
+    H.press(function() foyer.prompt({ key = 'd' }) end, '3GV')
     local prompt_buf = H.state().buf
     H.send('do not lose me', true)
     -- Waiting for the text to show, foyer keeps out of Terminal mode, so no
@@ -128,7 +128,7 @@ end)
 
 H.test('a terminal closed while foyer waits on it says nothing more', function()
     notes = {}
-    foyer.send_terminal_command('d', { command = 'gone soon' })
+    foyer.send('d', { command = 'gone soon' })
     vim.wait(300)
     local term = vim.iter(vim.api.nvim_list_bufs()):find(function(b)
         return vim.api.nvim_buf_get_name(b):find('dialog.py', 1, true)

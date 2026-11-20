@@ -22,13 +22,13 @@ vim.fn.writefile({
 local child = H.child(([==[
     local foyer = require('foyer')
     local agent = { 'python3', %q }
-    foyer.setup({ notify = false, commands = { s = agent, t = vim.deepcopy(agent) } })
+    foyer.setup({ notify_status = false, commands = { s = agent, t = vim.deepcopy(agent) } })
     foyer.is_idle = function() return true end
     vim.cmd('edit LICENSE')
     _G.file = vim.api.nvim_get_current_buf()
     _G.term = {}
     function _G.start(key)
-        foyer.terminal_command({ key = key, auto_start = true })
+        foyer.prompt({ key = key, auto_start = true })
         vim.cmd('stopinsert')
         _G.term[key] = vim.b.foyer_term
     end
@@ -114,14 +114,14 @@ H.test('the agent seen from another tab page takes its mark away', function()
     report('s', 'done')
     H.eq({ '✓', '' }, marks(), 'tab page 1 marked')
     -- Launched from tab page 2: its window moves here, and is looked at.
-    child.lua('require("foyer").terminal_command({ key = "s" }); vim.cmd("stopinsert")')
+    child.lua('require("foyer").prompt({ key = "s" }); vim.cmd("stopinsert")')
     vim.wait(300)
     H.eq({ '', '' }, marks(), 'gone')
     -- Put away, then used last in tab page 1, and looked at again from tab
     -- page 2 in a window of the user's.
     child.type('<C-c>', 300)
     child.lua('vim.cmd("tabprevious")')
-    child.lua('require("foyer").terminal_command({ key = "s" }); vim.cmd("stopinsert")')
+    child.lua('require("foyer").prompt({ key = "s" }); vim.cmd("stopinsert")')
     vim.wait(300)
     child.type('<C-c>', 300)
     report('s', 'working')
@@ -138,7 +138,7 @@ H.test('tabline = true puts the marks in a tab line of foyer\'s', function()
     child.lua('require("foyer").setup({ tabline = true })')
     H.eq("%!v:lua.require'foyer.tabline'.render()", child.lua('return vim.o.tabline'), 'set')
     -- Used last in tab page 1.
-    child.lua('require("foyer").terminal_command({ key = "s" }); vim.cmd("stopinsert")')
+    child.lua('require("foyer").prompt({ key = "s" }); vim.cmd("stopinsert")')
     vim.wait(300)
     child.type('<C-c>', 300)
     child.lua('vim.cmd("tabnext")')

@@ -8,9 +8,9 @@ local foyer = H.foyer({
     },
 })
 
--- What terminal_command() went on to drive, instead of driving it.
+-- What prompt() went on to drive, instead of driving it.
 local driven
-foyer.send_terminal_command = function(key) driven = key end
+foyer.send = function(key) driven = key end
 
 -- The picker popup, if one is open: its lines and highlight groups.
 local function popup()
@@ -51,7 +51,7 @@ local function pick(keys, typed_ahead)
     if typed_ahead then
         vim.api.nvim_feedkeys(typed_ahead, 'n', false)
     end
-    foyer.terminal_command()
+    foyer.prompt()
     restore()
     H.wait(100)
 end
@@ -99,8 +99,8 @@ H.test('global terminals sit at the bottom, tagged', function()
 end)
 
 H.test('a running terminal is marked', function()
-    foyer.send_terminal_command = function(key) driven = key end
-    -- Spawn b for real: terminal_command opens a terminal it has not seen.
+    foyer.send = function(key) driven = key end
+    -- Spawn b for real: prompt() opens a terminal it has not seen.
     pick({ 'b' })
     pick({ 27 })
     local row = vim.tbl_filter(function(l) return l:match('^ b ') end, seen[1].lines)[1]

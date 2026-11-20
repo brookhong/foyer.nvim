@@ -29,9 +29,9 @@ vim.fn.writefile({
 
 local child = H.child(([==[
     local foyer = require('foyer')
-    foyer.setup({ notify = false, commands = { p = { 'python3', %q } } })
+    foyer.setup({ notify_status = false, commands = { p = { 'python3', %q } } })
     vim.cmd('edit LICENSE')
-    foyer.terminal_command({ key = 'p', auto_start = true, switch = true })
+    foyer.prompt({ key = 'p', auto_start = true, show = true })
     vim.cmd('stopinsert')
     _G.term = vim.api.nvim_get_current_buf()
     function _G.state()

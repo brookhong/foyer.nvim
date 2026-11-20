@@ -309,7 +309,7 @@ local terms = H.child([[
     foyer.setup({ commands = { o = { 'sh', '-c "echo started-by-foyer; cat"' } } })
     foyer.is_idle = function() return true end
     vim.cmd('edit LICENSE')
-    foyer.terminal_command({ key = 'o', command = ':', auto_start = true })
+    foyer.prompt({ key = 'o', command = ':', auto_start = true })
     vim.cmd('terminal sh -c "echo opened-by-hand; cat"')
     vim.cmd('stopinsert | edit README.md | edit LICENSE')
     vim.keymap.set('n', '<F12>', foyer.jump)
@@ -362,7 +362,7 @@ local lone = H.child([[
     foyer.setup({ commands = { o = { 'sh', '-c "cat"' } } })
     foyer.is_idle = function() return true end
     vim.cmd('edit LICENSE')
-    foyer.terminal_command({ key = 'o', command = ':', auto_start = true })
+    foyer.prompt({ key = 'o', command = ':', auto_start = true })
     vim.cmd('stopinsert')
     for _, b in ipairs(vim.api.nvim_list_bufs()) do
         if vim.b[b].foyer_terminal then vim.api.nvim_set_current_buf(b) end

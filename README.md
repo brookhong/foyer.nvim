@@ -141,7 +141,7 @@ local foyer = require('foyer')
 
 -- Pick a terminal by its key and write a prompt for it. From visual mode the
 -- prompt carries the selected lines, labelled with their file and range.
-vim.keymap.set({ 'n', 'v' }, '<leader>a', foyer.terminal_command,
+vim.keymap.set({ 'n', 'v' }, '<leader>a', foyer.prompt,
     { desc = 'Prompt a picked terminal' })
 
 -- Edit the current visual selection in a floating buffer.

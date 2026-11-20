@@ -67,7 +67,7 @@ end
 
 
 -- What the user typed, with the selection below it after a blank line. It
--- joins here, as the prompt is sent, and never sits in the command buffer: the
+-- joins here, as the prompt is sent, and never sits in its buffer: the
 -- line stays the user's to edit and to navigate history with, and history
 -- records the prompt without a selection that will not be true next time. A
 -- blank prompt stays blank, so the send is dropped: a selection alone asks the
@@ -761,7 +761,7 @@ local term_keymaps_group = vim.api.nvim_create_augroup('foyer_keymaps', { clear 
 
 -- When each terminal was last used, as a count rather than a time, so two uses
 -- in the same millisecond still come in order: launched, shown, or its prompt
--- entered. What switch_terminal() goes back to.
+-- entered. What alternate_terminal() goes back to.
 local last_used = {}
 local use_count = 0
 local function touch(term_buf)
@@ -809,7 +809,7 @@ local function setup_terminal_keymaps(buf)
 
     -- <C-t> goes back up the tag stack, which a terminal never is on, so the
     -- key is free for something of foyer's own.
-    map(buf, 'terminal', 'switch', function() M.switch_terminal() end,
+    map(buf, 'terminal', 'alternate', function() M.alternate_terminal() end,
         { desc = 'Switch to the terminal used last' })
 
     vim.api.nvim_create_autocmd('TextYankPost', {
@@ -1004,7 +1004,7 @@ vim.api.nvim_create_autocmd('TermRequest', {
             end
             local root = terminal_root(buf)
             local notice = STATUS_NOTICE[state]
-            if notice and config.notify ~= false and not in_view(buf) then
+            if notice and config.notify_status ~= false and not in_view(buf) then
                 local text = ('foyer.nvim: %s · %s %s'):format(term_label(buf),
                     root and vim.fs.basename(root) or 'global', notice[1])
                 if state ~= 'done' and fields.message then text = text .. ': ' .. fields.message end
@@ -1158,7 +1158,7 @@ local function init_term_buf(term_bufnr, win_id, prev_buf)
         if above then return vim.api.nvim_set_current_win(above) end
         local key = vim.b[term_bufnr].foyer_key
         if key then
-            M.send_terminal_command(key, { above = { term = term_bufnr, prompt = vim.w[below].foyer_prompt } })
+            M.send(key, { above = { term = term_bufnr, prompt = vim.w[below].foyer_prompt } })
         end
     end)
 
@@ -1221,7 +1221,7 @@ local function init_command_buf_shared(bufnr, lines, on_enter)
     end)
 end
 
--- History navigation for one command buffer, over the history of {term_buf}.
+-- History navigation for one prompt, over the history of {term_buf}.
 -- Re-attachable, and must be re-attached by anyone handing an existing buffer
 -- to a new send: the list is read once, here, so a prompt that outlived its
 -- send would otherwise go on walking the history as it stood when its window
@@ -1523,7 +1523,7 @@ local function open_term(root, term_key, launch_info)
     return term_bufs[bucket][term_key]
 end
 
-function M.send_terminal_command(term_key, opts)
+function M.send(term_key, opts)
     opts = opts or {}
     capture(opts)
     -- Where the user is, before any window of ours opens: the file an @
@@ -1549,7 +1549,7 @@ function M.send_terminal_command(term_key, opts)
             open_term(root, term_key, opts.launch_info)
             opts.auto_start = false
             -- Straight away: the send itself waits for the program to start.
-            M.send_terminal_command(term_key, opts)
+            M.send(term_key, opts)
         else
             vim.notify("Terminal '" .. term_key .. "' not found", vim.log.levels.ERROR)
         end
@@ -1833,7 +1833,7 @@ local function pick_terminal(root, launch_info, running)
     return picked or nil
 end
 
-function M.terminal_command(opts)
+function M.prompt(opts)
     opts = opts or {}
     capture(opts)
 
@@ -1871,12 +1871,12 @@ function M.terminal_command(opts)
     end
 
     -- Step into the terminal rather than prompt for it, when asked to.
-    if opts.switch then
+    if opts.show then
         vim.api.nvim_set_current_buf(buf)
         return buf
     end
 
-    M.send_terminal_command(term_key, opts)
+    M.send(term_key, opts)
 end
 
 -- Switch to this project's running terminal used last before the one in front
@@ -1885,7 +1885,7 @@ end
 -- keeps, the other terminal takes the window the way a launch does, with its
 -- prompt behind <C-o>, draft and all -- only showing the terminal rather than
 -- the prompt. In any other window the terminal is simply shown.
-function M.switch_terminal()
+function M.alternate_terminal()
     local current = vim.api.nvim_get_current_buf()
     local root = current_root()
     -- What a function in `commands` is resolved with, as for any launch.
@@ -1912,7 +1912,7 @@ function M.switch_terminal()
     if kind then
         opts.win_type = kind
         opts.show_terminal = true
-        M.send_terminal_command(best_key, opts)
+        M.send(best_key, opts)
     else
         vim.api.nvim_set_current_buf(best_buf)
     end
@@ -1971,6 +1971,6 @@ function M.jump()
 end
 
 M.toggle_full_size = layout.toggle_full_size
-M.tab_switch = layout.tab_switch
+M.next_window = layout.next_window
 
 return M

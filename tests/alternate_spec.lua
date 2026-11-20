@@ -10,7 +10,7 @@ vim.cmd('edit README.md')
 local file = vim.api.nvim_get_current_buf()
 
 local function launch(key, win_type)
-    H.press(function() foyer.terminal_command({ key = key, win_type = win_type }) end)
+    H.press(function() foyer.prompt({ key = key, win_type = win_type }) end)
 end
 
 -- Launch {key} and send to it, from the file: its terminal is left in the window.

@@ -106,14 +106,14 @@ H.test('a split with nothing above or below leaves the command line be', functio
     vim.o.cmdheight = 1
 end)
 
-H.test('tab_switch() steps past a squeezed window to the alternate buffer', function()
+H.test('next_window() steps past a squeezed window to the alternate buffer', function()
     vim.cmd('silent! only | edit README.md | edit LICENSE | vsplit')
     local win = vim.api.nvim_get_current_win()
-    foyer.tab_switch()
+    foyer.next_window()
     H.ok(vim.api.nvim_get_current_win() ~= win, 'with room, into the other window')
     vim.api.nvim_set_current_win(win)
     foyer.toggle_full_size()
-    foyer.tab_switch()
+    foyer.next_window()
     H.eq(win, vim.api.nvim_get_current_win(), 'the squeezed one is skipped')
     H.ok(vim.api.nvim_buf_get_name(0):match('README%.md$'), 'switched to the alternate buffer')
 end)

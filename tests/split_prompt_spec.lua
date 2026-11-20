@@ -15,7 +15,7 @@ vim.cmd('edit README.md')
 local file = vim.api.nvim_get_current_buf()
 
 local function prompt(key)
-    H.press(function() foyer.terminal_command({ key = key or 'q' }) end)
+    H.press(function() foyer.prompt({ key = key or 'q' }) end)
 end
 
 -- The terminal in the split foyer keeps, shown by a send from its prompt.
@@ -53,7 +53,7 @@ H.test('the split opens in Insert mode, at the end of the draft', function()
         foyer.setup({ commands = { q = { 'sh', '-c "echo up; cat >/dev/null"' } } })
         foyer.is_idle = function() return true end
         vim.cmd('edit README.md')
-        foyer.terminal_command({ key = 'q' })
+        foyer.prompt({ key = 'q' })
     ]])
     vim.wait(500)
     child.lua([[
@@ -77,7 +77,7 @@ end)
 
 H.test('the draft behind <C-o> comes up in the split, and what it carries with it', function()
     H.reset(file)
-    H.press(function() foyer.terminal_command({ key = 'q' }) end, '3GV')
+    H.press(function() foyer.prompt({ key = 'q' }) end, '3GV')
     local draft = H.state().buf
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'half written' })
     vim.cmd('stopinsert')

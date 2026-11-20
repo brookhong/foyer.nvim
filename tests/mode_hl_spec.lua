@@ -9,7 +9,7 @@ local child = H.child(([[
     vim.cmd('edit LICENSE')
     _G.file = vim.api.nvim_get_current_buf()
     vim.wo.winhighlight = 'Search:IncSearch'
-    foyer.terminal_command({ key = 'q', switch = true })
+    foyer.prompt({ key = 'q', show = true })
     vim.cmd('stopinsert')
     _G.win = vim.api.nvim_get_current_win()
 ]]):format(H.quiet[1], H.quiet[2]))
@@ -77,7 +77,7 @@ end)
 
 -- The terminal back in its window, after a test that left the file there.
 local function show_terminal()
-    child.lua('require("foyer").terminal_command({ key = "q", switch = true }); vim.cmd("stopinsert")')
+    child.lua('require("foyer").prompt({ key = "q", show = true }); vim.cmd("stopinsert")')
     vim.wait(300)
 end
 

@@ -47,7 +47,7 @@ local function tab_bufs(n) return child.lua('return _G.tab_bufs(...)', n) end
 
 -- Launch {key} from where the child is, and wait for its prompt.
 local function launch(key, win_type)
-    child.lua('require("foyer").terminal_command({ key = ..., win_type = select(2, ...) }); vim.cmd("stopinsert")',
+    child.lua('require("foyer").prompt({ key = ..., win_type = select(2, ...) }); vim.cmd("stopinsert")',
         key, win_type)
     vim.wait(500)
 end
@@ -109,7 +109,7 @@ H.test('a selection goes from the tab page it was made in', function()
     launch('q')
     child.lua('vim.cmd("tabnew README.md")')
     child.type('ggVj', 100)
-    child.lua('require("foyer").terminal_command({ key = "q" }); vim.cmd("stopinsert")')
+    child.lua('require("foyer").prompt({ key = "q" }); vim.cmd("stopinsert")')
     vim.wait(500)
     local s = child.lua('return { title = vim.b.foyer_title, selection = vim.b.foyer_selection }')
     H.ok(s.title and s.title:find('README.md:1-2', 1, true), 'the title names it: ' .. tostring(s.title))

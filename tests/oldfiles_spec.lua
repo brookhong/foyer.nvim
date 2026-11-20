@@ -28,7 +28,7 @@ local child = H.child([[
     foyer.setup({ commands = { q = { 'sh', '-c "echo up; cat >/dev/null"' } } })
     foyer.is_idle = function() return true end
     vim.cmd('edit README.md | normal! 5G')
-    foyer.terminal_command({ key = 'q' })
+    foyer.prompt({ key = 'q' })
 ]], shada)
 vim.wait(300)
 

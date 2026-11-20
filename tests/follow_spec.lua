@@ -1,7 +1,7 @@
 local H = dofile('tests/helpers.lua')
 
 -- A terminal whose program prints a prompt and, for every line it reads, more
--- reply than its window holds. Shown in a split by `switch`, as an ordinary
+-- reply than its window holds. Shown in a split by `show`, as an ordinary
 -- window would show it, so nothing but the send decides where it looks.
 local script = vim.fn.stdpath('cache') .. '/replies.sh'
 vim.fn.mkdir(vim.fn.fnamemodify(script, ':h'), 'p')
@@ -19,7 +19,7 @@ local child = H.child(([[
     foyer.setup({ commands = { r = { 'sh', %q } } })
     foyer.is_idle = function() return true end
     vim.cmd('edit LICENSE | vsplit')
-    foyer.terminal_command({ key = 'r', switch = true })
+    foyer.prompt({ key = 'r', show = true })
     vim.cmd('stopinsert')
     _G.term_win = vim.api.nvim_get_current_win()
     -- Back to the file: the terminal is in a window beside it, not in front.
@@ -42,7 +42,7 @@ child.lua('vim.api.nvim_win_set_cursor(_G.term_win, { 1, 0 })')
 -- Send {text}, and wait until the last line of its reply is in.
 local function send_and_wait(text)
     local before = child.lua('return _G.view()')
-    child.lua('require("foyer").send_terminal_command("r", { command = ... })', text)
+    child.lua('require("foyer").send("r", { command = ... })', text)
     local arrived = vim.wait(3000, function()
         return child.lua([[
             local want = ...

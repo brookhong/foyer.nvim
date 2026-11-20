@@ -18,7 +18,7 @@ local path = vim.fs.joinpath(H.root, 'README.md')
 local function ask(keys, key, opts)
     H.reset(file)
     H.press(function()
-        foyer.terminal_command(vim.tbl_extend('force', { key = key or 'q' }, opts or {}))
+        foyer.prompt(vim.tbl_extend('force', { key = key or 'q' }, opts or {}))
     end, keys)
     local title = H.state().title
     H.send('what is this?')
@@ -68,7 +68,7 @@ end)
 
 H.test('history keeps the prompt without the selection', function()
     H.reset(file)
-    H.press(function() foyer.terminal_command({ key = 'q' }) end)
+    H.press(function() foyer.prompt({ key = 'q' }) end)
     vim.cmd('stopinsert')
     H.feed('<Up>')
     H.eq({ 'what is this?' }, vim.api.nvim_buf_get_lines(0, 0, -1, false), 'recalled')
@@ -81,7 +81,7 @@ local function ask_unnamed(keys, text)
     local buf = vim.api.nvim_get_current_buf()
     vim.bo[buf].filetype = 'lua'
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, text)
-    H.press(function() foyer.terminal_command({ key = 'q' }) end, keys)
+    H.press(function() foyer.prompt({ key = 'q' }) end, keys)
     local title = H.state().title
     H.send('what is this?')
     local sent = (H.last_text() or ''):gsub('\27%[20[01]~', ''):gsub('\r$', '')
@@ -110,7 +110,7 @@ H.test('a copy takes .txt for a filetype with no extension of its own', function
     vim.cmd('enew')
     vim.bo.filetype = 'python'
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { '1', '2', '3', '4' })
-    H.press(function() foyer.terminal_command({ key = 'q' }) end, '1GV3j')
+    H.press(function() foyer.prompt({ key = 'q' }) end, '1GV3j')
     H.send('what is this?')
     vim.cmd('stopinsert')
     H.ok(H.last_text():match('copied whole to %S+%.txt\27%[201~\r$'), H.last_text())
@@ -136,7 +136,7 @@ end)
 
 -- Select with {keys} in the current buffer, as it is, prompt q and send.
 local function ask_here(keys)
-    H.press(function() foyer.terminal_command({ key = 'q' }) end, keys)
+    H.press(function() foyer.prompt({ key = 'q' }) end, keys)
     local title = H.state().title
     H.send('what is this?')
     local sent = (H.last_text() or ''):gsub('\27%[20[01]~', ''):gsub('\r$', '')
@@ -189,7 +189,7 @@ H.test('a terminal\'s output goes to another terminal, and not back to itself', 
     -- From one of foyer's terminals to another: r's output, sent to q.
     foyer.setup({ commands = { r = { 'sh', [[-c "echo 'r says: build failed'; cat >/dev/null"]] } } })
     H.reset()
-    H.press(function() foyer.terminal_command({ key = 'r', switch = true }) end)
+    H.press(function() foyer.prompt({ key = 'r', show = true }) end)
     vim.wait(2000, function() return vim.fn.getline(1):find('build failed', 1, true) ~= nil end)
     vim.cmd('stopinsert')
     local across = ask_here('1GV')
@@ -198,7 +198,7 @@ H.test('a terminal\'s output goes to another terminal, and not back to itself', 
 
     -- In q's own terminal, a selection is no news to q.
     H.reset()
-    H.press(function() foyer.terminal_command({ key = 'q', switch = true }) end)
+    H.press(function() foyer.prompt({ key = 'q', show = true }) end)
     vim.cmd('stopinsert')
     local own = ask_here('1GV')
     H.eq('what is this?', own, 'the prompt alone')

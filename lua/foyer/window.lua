@@ -246,7 +246,7 @@ local function new_cmd_buf()
 end
 
 -- {on_ready} is called with reused = true when the window already held a
--- command buffer, so a caller can re-point that draft at what this send
+-- prompt, so a caller can re-point that draft at what this send
 -- carries instead of silently handing back the state of the send before it.
 --
 -- {opts.term} is the terminal the window is for. A window of foyer's showing

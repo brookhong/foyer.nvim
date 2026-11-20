@@ -240,7 +240,7 @@ end
 
 -- The listed buffers worth a label: all of them but the terminals foyer
 -- started. Their names, a pid and a command line, would not tell one
--- project's agent from another's; terminal_command() reaches this project's
+-- project's agent from another's; prompt() reaches this project's
 -- and the global ones, in a window where the prompt is a <C-o> away, and
 -- another project's is reached from that project. One in a window is still
 -- listed under Windows.

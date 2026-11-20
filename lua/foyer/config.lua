@@ -22,7 +22,7 @@ local default_keys = {
     },
     -- In a terminal foyer started.
     terminal = {
-        switch = { n = '<C-t>' },
+        alternate = { n = '<C-t>' },
         prompt = { n = '<C-o>' },
         split_prompt = { n = 'O' },
         close = { n = { '<CR>', '<C-c>', '<Esc>' } },
@@ -32,7 +32,7 @@ local default_keys = {
 
 local config = {
     commands = {}, root_markers = nil, bracketed_paste = true,
-    picker_delay = 500, selection_max_lines = 40, mention = true, notify = true, tabline = false,
+    picker_delay = 500, selection_max_lines = 40, mention = true, notify_status = true, tabline = false,
     quit_guard = true, normal_on_submit = true,
     -- foyer.jump(): the keys its hint labels are made of, how many entries
     -- it labels at most (nil: as many as there are keys, each label one key),

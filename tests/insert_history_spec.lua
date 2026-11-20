@@ -19,7 +19,7 @@ local child = H.child([[
         end
         vim.cmd('stopinsert | silent! only')
         vim.api.nvim_set_current_buf(_G.readme)
-        foyer.terminal_command({ key = key or 'q' })
+        foyer.prompt({ key = key or 'q' })
         vim.api.nvim_buf_set_lines(0, 0, -1, false, lines or {})
         local last = vim.api.nvim_buf_line_count(0)
         vim.api.nvim_win_set_cursor(0, { last, #vim.api.nvim_buf_get_lines(0, last - 1, last, false)[1] })

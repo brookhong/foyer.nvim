@@ -34,7 +34,7 @@ local function start(key, opts)
         vim.cmd('edit LICENSE')
         _G.notices = {}
         vim.notify = function(msg) table.insert(_G.notices, msg) end
-        foyer.terminal_command({ key = %q, auto_start = true })
+        foyer.prompt({ key = %q, auto_start = true })
         vim.cmd('stopinsert')
         vim.api.nvim_win_close(0, true)
         for _, b in ipairs(vim.api.nvim_list_bufs()) do

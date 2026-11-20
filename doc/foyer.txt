@@ -35,7 +35,7 @@ functions you want, for instance: >lua
     local foyer = require('foyer')
     -- Pick a terminal by its key and write a prompt for it; from Visual
     -- mode the prompt carries the selected lines.
-    vim.keymap.set({ 'n', 'v' }, '<leader>a', foyer.terminal_command,
+    vim.keymap.set({ 'n', 'v' }, '<leader>a', foyer.prompt,
         { desc = 'Prompt a picked terminal' })
     -- Edit the Visual selection in a floating buffer.
     vim.keymap.set('v', 'E', foyer.edit_selection)
@@ -60,7 +60,7 @@ setup({opts})
 
 commands ~
     Table of terminals, keyed by the single character that selects them in
-    |foyer.terminal_command()|. Each value is one of:
+    |foyer.prompt()|. Each value is one of:
 
     - a string: the command to run, e.g. `'zsh'`
     - a table `{ command, arguments }`; the first element doubles as the
@@ -100,8 +100,8 @@ bracketed_paste ~
     |foyer-limitations|. Defaults to `true`.
 
 picker_delay ~
-    Milliseconds |foyer.terminal_command()| waits for a terminal key before
-    showing its picker; a key typed within it shows none. Defaults to `500`.
+    Milliseconds |foyer.prompt()| waits for a terminal key before showing
+    its picker; a key typed within it shows none. Defaults to `500`.
 
 selection_max_lines ~
     A selection is sent with its lines up to this many, and as its label
@@ -112,7 +112,7 @@ mention ~
     Whether `@` in a prompt lists files to mention, see |foyer-mention|.
     Defaults to `true`.
 
-notify ~
+notify_status ~
     Whether foyer tells you, with |vim.notify()|, that a terminal's program
     is done, waiting for you, or failed, unless that terminal is in view.
     Only a program that reports its state, such as pi, says so; see
@@ -135,12 +135,12 @@ tabline ~
     to `false`.
 
 keys ~
-    The keys foyer maps in its own buffers, by action: `prompt` for the
-    command buffer, `terminal` for a terminal foyer started, see
-    |foyer-mappings|. Only the actions named change. An action takes a key or
-    a list of keys, put in the modes it has by default; a table by mode,
-    naming the modes itself; or `false`, for no key. A list replaces the
-    default list. The defaults: >lua
+    The keys foyer maps in its own buffers, by action: `prompt` for a
+    prompt, `terminal` for a terminal foyer started, see |foyer-mappings|.
+    Only the actions named change. An action takes a key or a list of keys,
+    put in the modes it has by default; a table by mode, naming the modes
+    itself; or `false`, for no key. A list replaces the default list. The
+    defaults: >lua
         keys = {
             prompt = {
                 send = { n = '<CR>', i = '<C-s>' },
@@ -152,7 +152,7 @@ keys ~
                 history_pick = { n = '<C-f>', i = '<C-f>' },
             },
             terminal = {
-                switch = { n = '<C-t>' },
+                alternate = { n = '<C-t>' },
                 prompt = { n = '<C-o>' },
                 split_prompt = { n = 'O' },
                 close = { n = { '<CR>', '<C-c>', '<Esc>' } },
@@ -181,9 +181,9 @@ jump ~
                                                                   *foyer-opts*
                                                            *foyer.launch_info*
 launch_info ~
-    The context a prompt was composed with, captured by
-    |foyer.terminal_command()| and |foyer.send_terminal_command()| and passed
-    to a `commands` function. Passing one yourself skips the capture. >lua
+    The context a prompt was composed with, captured by |foyer.prompt()| and
+    |foyer.send()| and passed to a `commands` function. Passing one yourself
+    skips the capture. >lua
         {
             project_root = '/repo',
             current_file = 'src/main.c',   -- relative to project_root
@@ -196,11 +196,10 @@ launch_info ~
     absolute. In a buffer that is no file on disk the table is empty. Any
     other key you add reaches the function too.
 
-Command {opts} accepted by |foyer.terminal_command()| and
-|foyer.send_terminal_command()|:
+Command {opts} accepted by |foyer.prompt()| and |foyer.send()|:
 
-    command       Send this text instead of opening a command buffer.
-    interactive   Open the command buffer even with `command` set, which then
+    command       Send this text instead of opening a prompt.
+    interactive   Open the prompt even with `command` set, which then
                   seeds it.
     selection     Text appended to the prompt as it is sent. Set for you
                   when the send starts in Visual mode, see below.
@@ -210,10 +209,10 @@ Command {opts} accepted by |foyer.terminal_command()| and
                   |foyer-sending|.
     launch_info   See |foyer.launch_info|.
 
-|foyer.terminal_command()| also accepts:
+|foyer.prompt()| also accepts:
 
     key           The `commands` key to drive, instead of asking for one.
-    switch        Show the terminal in the current window rather than opening
+    show          Show the terminal in the current window rather than opening
                   a prompt for it, and return its buffer.
 
 Starting from Visual mode attaches the selection, for an agent to read: a
@@ -253,29 +252,29 @@ after it. Answer the question in the terminal; the prompt is in history, one
 ==============================================================================
 4. API                                                             *foyer-api*
 
-                                                    *foyer.terminal_command()*
-terminal_command({opts})
+                                                              *foyer.prompt()*
+prompt({opts})
     Wait for a `commands` key, spawn that terminal if it is not running for
-    the current project, then open a command buffer for it. With no key typed
-    within `picker_delay`, a popup lists the keys, tagging global terminals
+    the current project, then open a prompt for it. With no key typed within
+    `picker_delay`, a popup lists the keys, tagging global terminals
     `global`, marking running ones `●` and what one that reports its state
     is doing, see |FoyerStatus|. <Esc> or CTRL-C cancels.
-    `opts.key` names the terminal outright, and `opts.switch` steps into its
+    `opts.key` names the terminal outright, and `opts.show` steps into its
     buffer instead of opening a prompt.
 
-                                               *foyer.send_terminal_command()*
-send_terminal_command({term_key}, {opts})
+                                                                *foyer.send()*
+send({term_key}, {opts})
     Drive a specific terminal without prompting for a key. With
     `opts.command` set, the text is sent non-interactively; otherwise a
-    command buffer opens. With `opts.auto_start` the terminal is created if
-    it is missing.
+    prompt opens. With `opts.auto_start` the terminal is created if it is
+    missing.
 
-                                                     *foyer.switch_terminal()*
-switch_terminal()
+                                                  *foyer.alternate_terminal()*
+alternate_terminal()
     Switch to the terminal of this project used last before the current one,
     in the same window: with two, a toggle. Each terminal's draft is kept.
     Global terminals are left out, and none is started. Mapped to
-    `keys.terminal.switch`, <C-t>, in foyer's terminals.
+    `keys.terminal.alternate`, <C-t>, in foyer's terminals.
 
                                                       *foyer.edit_selection()*
 edit_selection()
@@ -305,14 +304,14 @@ jump()
     foyer's own terminals from the buffers. >lua
         vim.keymap.set('n', '<leader>b', require('foyer').jump)
 <
-                                                          *foyer.tab_switch()*
-tab_switch()
+                                                         *foyer.next_window()*
+next_window()
     Move to the next window worth looking at, in CTRL-W w order, skipping
     floats and windows squeezed flat by a full-screen neighbour. With none
     left, switch to the alternate buffer instead, like CTRL-^. A maximised
     diff pane gives its pair back its size and steps into it.
 
-                                                           *foyer.tab_mark()*
+                                                            *foyer.tab_mark()*
 tab_mark({tabnr})
     The mark of tab page {tabnr}: `✓` when an agent there is done, `?` when
     one waits for you, `✗` when one failed, the most urgent first, or `''`.
@@ -328,7 +327,7 @@ is_idle({buf}, {threshold_ms})
     Return true when {buf} has produced no output for {threshold_ms}
     milliseconds (default 1000). A program that reports its state is busy
     while working or waiting for you, and idle once done. A busy terminal is
-    shown instead of a new command buffer.
+    shown instead of a new prompt.
 
                                                                  *FoyerStatus*
 A program that reports its state with the Program Status Protocol (OSC 7501),
@@ -353,7 +352,7 @@ All mappings below are buffer-local, each set by the `keys` action named
 beside it, see |foyer-setup|. |foyer.edit_selection()|'s window takes `send`,
 `close` and `close_if_empty` from `keys.prompt`.
 
-In the command buffer ~
+In the prompt ~
 
 A new prompt with something in it already -- a seeded `command`, a selection
 to carry -- opens in Insert mode; an empty one in Normal mode.
@@ -411,7 +410,7 @@ In the terminal buffer ~
 In foyer's terminals, in Normal mode; nothing is mapped in Terminal mode,
 where every key is the program's:
 
-    <C-t>              n   |foyer.switch_terminal()| (`switch`)
+    <C-t>              n   |foyer.alternate_terminal()| (`alternate`)
     <C-r>              n   cd to the terminal's project root (`cd_root`)
     <C-o>              n   Back to the prompt the terminal was shown for;
                            elsewhere, Vim's |CTRL-O| (`prompt`)
@@ -436,7 +435,7 @@ FoyerMatch
 
                                                             *hl-FoyerBackdrop*
 FoyerBackdrop
-    The veil dimming the editor behind the |foyer.terminal_command()|
+    The veil dimming the editor behind the |foyer.prompt()|
     picker; needs 'termguicolors'. Defaults to `bg=#000000`.
 
                                                             *hl-FoyerTerminal*

@@ -123,7 +123,7 @@ end
 -- on the spot rather than read back from toggle_full_size(), whose saved size
 -- outlives the layout it was taken in — a window would otherwise go on claiming
 -- to be full after the user closed or resized the neighbour it had squeezed.
-function M.tab_switch()
+function M.next_window()
     local others = other_wins()
     for _, win in ipairs(others) do
         if not is_sliver(win) then
@@ -137,7 +137,7 @@ function M.tab_switch()
         -- pane its size back and step into it. Restoring drops the saved size,
         -- so the second pass cannot arrive back here.
         M.toggle_full_size()
-        M.tab_switch()
+        M.next_window()
         return
     end
 
