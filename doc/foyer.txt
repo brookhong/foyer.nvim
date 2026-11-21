@@ -405,14 +405,17 @@ left; <Esc> clears the filter, and then closes the list.
 
                                                                *foyer-mention*
 `@` at the start of a word lists the open files, the one you came from first,
-at your cursor line, then recent files (|v:oldfiles|). Typing after the `@`
-searches them by name. While it is open:
+at your cursor line, then recent files (|v:oldfiles|), each beside the line it
+is offered at. Typing after the `@` searches them by name. While it is open:
 
-    <CR>       Put in `@src/parser.c:120`, the path as the agent resolves it.
-    <C-l>      Put in the selection block a Visual selection sends, see
-               |foyer-opts|: the file's last Visual selection if it holds the
-               line, else the line alone.
+    <CR>       Put in `@src/parser.c`, the path as the agent resolves it.
+    <C-l>      Put in `@src/parser.c:120`, with the line.
     <Esc>      Leave the `@` as typed.
+
+<C-l> right after the mention takes it a step further: `@src/parser.c` to
+`@src/parser.c:120`, and that to the selection block a Visual selection
+sends, see |foyer-opts|: the file's last Visual selection if it holds the
+line, else the line alone.
 
 In the terminal buffer ~
 

@@ -35,7 +35,8 @@ vim.wait(300)
 local function menu()
     return child.lua([[
         local ci = vim.fn.complete_info({ 'pum_visible', 'items' })
-        return vim.tbl_map(function(i) return i.abbr end, ci.items)
+        -- Each name with the line it is offered at, shown beside it.
+        return vim.tbl_map(function(i) return i.abbr .. ':' .. i.menu:match('^%d+') end, ci.items)
     ]])
 end
 
@@ -62,7 +63,10 @@ H.test('a recent file is loaded for the menu without its autocommands', function
     H.eq('', child.lua("return vim.bo[vim.fn.bufnr('lua/foyer/layout.lua')].filetype"), 'no FileType yet')
 end)
 
-H.test('<C-l> on it sends its lines, with the filetype it would have', function()
+H.test('<C-l> twice on it sends its lines, with the filetype it would have', function()
+    child.type('<C-l>')
+    H.eq({ '@lua/foyer/layout.lua:20 ' }, child.lines(), 'first, the line')
+    -- By now the menu has let the file go: the block loads it again.
     child.type('<C-l>')
     local lines = child.lines()
     H.ok(lines[1]:find('lua/foyer/layout.lua, line 20$'), 'label: ' .. lines[1])

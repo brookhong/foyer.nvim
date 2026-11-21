@@ -1,8 +1,10 @@
 -- @ mentions in an agent prompt: `@` at the start of a word lists the open
 -- files and the recent ones from 'shada', ten at a time and searched by name as
 -- you type, each at the line it is most likely being talked about, and picking
--- one puts it in the prompt -- <CR> as `@path:line`, <C-l> as the selection block
--- an agent gets for a visual selection, lines and all.
+-- one puts it in the prompt -- <CR> as `@path`, <C-l> as `@path:line`. <C-l>
+-- on the mention just put in takes it one step further: `@path` to
+-- `@path:line`, and that to the selection block an agent gets for a visual
+-- selection, lines and all.
 --
 -- The list is Neovim's completion menu, but filled and filtered here: the
 -- entries' `word` is whatever was typed after the `@`, so choosing one with the
@@ -15,6 +17,11 @@ local M = {}
 -- Per prompt buffer, while a mention is being typed: where its `@` is, and the
 -- files the menu is showing.
 local active = {}
+
+-- Per prompt buffer, the mention last put in, while the cursor is still just
+-- after it: what <C-l> takes a step further. { row, col, text, cursor, file,
+-- step }, `step` being 'path' or 'line'.
+local last = {}
 
 -- Buffers loaded by peek() for a menu, with whether peek() made them, until
 -- release() puts them back. One table for every mention rather than one each:
@@ -210,8 +217,8 @@ local function refresh(bufnr)
     local items = vim.tbl_map(function(f)
         return {
             word = '@' .. typed,
-            abbr = ('%s:%d'):format(f.name, f.line),
-            menu = f.text:sub(1, 60),
+            abbr = f.name,
+            menu = ('%d: %s'):format(f.line, f.text:sub(1, 60)),
             dup = 1,
             empty = 1,
         }
@@ -219,27 +226,37 @@ local function refresh(bufnr)
     vim.fn.complete(state.col + 1, items)
 end
 
--- What picking {file} puts in: `@path:line` for <CR>, or for <C-l> the lines
--- of the selection block. Read while the menu still holds the file: one it
--- only peeked at is released when the menu closes.
-local function payload(file, as_block)
-    if not as_block then return ('@%s:%d'):format(file.name, file.line) end
-    local first, last = offered_range(file.buf, file.line)
-    local sel = context.buffer_selection(file.buf, first, last)
-    return vim.split(context.selection_block(sel), '\n', { plain = true })
+-- What {file} is put in as at {step}: `@path`, `@path:line`, or the lines of
+-- the selection block. The block is read from the file's buffer, loaded
+-- again for the purpose if the menu that showed it has let it go.
+local function payload(file, step)
+    if step == 'path' then return '@' .. file.name end
+    if step == 'line' then return ('@%s:%d'):format(file.name, file.line) end
+    local buf = file.buf
+    if not (buf and vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)) then
+        local created = vim.fn.bufexists(file.path) == 0
+        buf = vim.fn.bufadd(file.path)
+        if not peek(buf, created) then return nil end
+    end
+    local sel = context.buffer_selection(buf, file.first, file.last)
+    local block = vim.split(context.selection_block(sel), '\n', { plain = true })
+    vim.schedule(release)
+    return block
 end
 
--- Put {text}, from payload(), in place of the mention being typed.
-local function accept(bufnr, state, text)
-    local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+-- Put {text}, from payload(), in place of columns {from}..{to} of line {row}.
+-- A mention put in is remembered, for <C-l> to take further.
+local function accept(bufnr, row, from, to, text, file, step)
+    last[bufnr] = nil
     local line = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1]
-    local before, after = line:sub(1, state.col), line:sub(col + 1)
+    local before, after = line:sub(1, from), line:sub(to + 1)
 
     if type(text) == 'string' then
         -- A space after it, so the next word does not run into the path.
-        if not after:find('^%s') then text = text .. ' ' end
-        vim.api.nvim_buf_set_text(bufnr, row - 1, state.col, row - 1, col, { text })
-        vim.api.nvim_win_set_cursor(0, { row, state.col + #text })
+        local put = after:find('^%s') and text or text .. ' '
+        vim.api.nvim_buf_set_text(bufnr, row - 1, from, row - 1, to, { put })
+        vim.api.nvim_win_set_cursor(0, { row, from + #put })
+        last[bufnr] = { row = row, col = from, text = text, cursor = from + #put, file = file, step = step }
         return
     end
 
@@ -255,10 +272,24 @@ local function accept(bufnr, state, text)
     vim.api.nvim_win_set_cursor(0, { row + #lines - 1, 0 })
 end
 
--- The key that accepts, as an <expr> mapping. The accepting itself waits for
--- the menu to close, since the menu would otherwise put back the text it last
--- saw.
-local function accept_key(bufnr, key, as_block)
+-- The mention last put in, if the cursor is still just after it, unchanged.
+local function just_put(bufnr)
+    local st = last[bufnr]
+    if not st then return nil end
+    local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+    local line = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1] or ''
+    if row ~= st.row or col ~= st.cursor or line:sub(st.col + 1, st.col + #st.text) ~= st.text then
+        last[bufnr] = nil
+        return nil
+    end
+    return st
+end
+
+-- The key that accepts from the menu, as an <expr> mapping: <CR> at `path`,
+-- <C-l> at `line`. The accepting itself waits for the menu to close, since the
+-- menu would otherwise put back the text it last saw. Read while the menu
+-- still holds the file: one it only peeked at is released when it closes.
+local function accept_key(bufnr, key, step)
     return function()
         local state = active[bufnr]
         if not state then return key end
@@ -268,10 +299,36 @@ local function accept_key(bufnr, key, as_block)
         local matches = menu or matching(state)
         if #matches == 0 then return key end
         local selected = menu and vim.fn.complete_info({ 'selected' }).selected or -1
-        local text = payload(matches[(selected >= 0 and selected or 0) + 1], as_block)
+        local file = matches[(selected >= 0 and selected or 0) + 1]
+        -- The lines <C-l> will send as a block, read now, while the buffer
+        -- is surely loaded.
+        file.first, file.last = offered_range(file.buf, file.line)
+        local text = payload(file, step)
         M.stop(bufnr)
-        vim.schedule(function() accept(bufnr, state, text) end)
+        vim.schedule(function()
+            local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+            accept(bufnr, row, state.col, col, text, file, step)
+        end)
         return vim.fn.pumvisible() == 1 and '<C-e>' or ''
+    end
+end
+
+-- <C-l>: from the menu, the file at its line; on the mention just put in, one
+-- step further; anywhere else, Vim's own.
+local function ladder_key(bufnr)
+    local from_menu = accept_key(bufnr, '<C-l>', 'line')
+    return function()
+        if active[bufnr] then return from_menu() end
+        local st = just_put(bufnr)
+        if not st then return '<C-l>' end
+        local step = st.step == 'path' and 'line' or 'block'
+        vim.schedule(function()
+            local text = payload(st.file, step)
+            -- Up to the cursor: the space put in after it goes too, and comes
+            -- back after the new text, the cursor after it, where it was.
+            if text then accept(bufnr, st.row, st.col, st.cursor, text, st.file, step) end
+        end)
+        return ''
     end
 end
 
@@ -281,8 +338,8 @@ local local_completeopt = (function()
     return ok and info.scope == 'buf'
 end)()
 
--- <CR> and <C-l> are taken only while a mention is open, and given back the
--- moment it closes: the rest of the time <CR> is the newline of a multi-line
+-- <CR> is taken only while a mention is open, and given back the moment it
+-- closes: the rest of the time <CR> is the newline of a multi-line
 -- prompt, and a mapping on it could not tell the two apart -- it runs before
 -- the keys typed ahead of it are in the line.
 local function take_keys(bufnr)
@@ -293,8 +350,7 @@ local function take_keys(bufnr)
         active[bufnr].completeopt = vim.bo[bufnr].completeopt
         vim.bo[bufnr].completeopt = 'menuone,noinsert'
     end
-    vim.keymap.set('i', '<CR>', accept_key(bufnr, '<CR>', false), { buffer = bufnr, expr = true })
-    vim.keymap.set('i', '<C-l>', accept_key(bufnr, '<C-l>', true), { buffer = bufnr, expr = true })
+    vim.keymap.set('i', '<CR>', accept_key(bufnr, '<CR>', 'path'), { buffer = bufnr, expr = true })
 end
 
 function M.stop(bufnr)
@@ -305,9 +361,7 @@ function M.stop(bufnr)
     if state.completeopt ~= nil and vim.api.nvim_buf_is_valid(bufnr) then
         vim.bo[bufnr].completeopt = state.completeopt
     end
-    for _, key in ipairs({ '<CR>', '<C-l>' }) do
-        pcall(vim.keymap.del, 'i', key, { buffer = bufnr })
-    end
+    pcall(vim.keymap.del, 'i', '<CR>', { buffer = bufnr })
     -- Scheduled: stop() can run inside a mapping, where no buffer may go.
     vim.schedule(release)
 end
@@ -336,6 +390,8 @@ function M.attach(bufnr, mention)
         end)
         return '@'
     end, { buffer = bufnr, expr = true, desc = 'Mention an open file' })
+    vim.keymap.set('i', '<C-l>', ladder_key(bufnr),
+        { buffer = bufnr, expr = true, desc = 'Mention: add the line, then the lines themselves' })
 
     local group = vim.api.nvim_create_augroup('foyer_mention_' .. bufnr, { clear = true })
     vim.api.nvim_create_autocmd({ 'TextChangedI', 'TextChangedP' }, {
@@ -351,7 +407,10 @@ function M.attach(bufnr, mention)
     vim.api.nvim_create_autocmd({ 'InsertLeave', 'BufLeave', 'BufWipeout' }, {
         group = group,
         buffer = bufnr,
-        callback = function() M.stop(bufnr) end,
+        callback = function()
+            M.stop(bufnr)
+            last[bufnr] = nil
+        end,
     })
 end
 
