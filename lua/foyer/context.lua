@@ -4,6 +4,7 @@
 local options = require('foyer.config')
 local config = options.options
 local project_root = options.project_root
+local roundtrip = require('foyer.roundtrip')
 
 local M = {}
 
@@ -108,6 +109,9 @@ local function buffer_selection(buf, first, last)
     info.start_line, info.end_line = first, last
     return {
         info = info,
+        buf = buf,
+        -- Whether an agent may change it: not a terminal's output.
+        editable = not vim.b[buf].terminal_job_id and vim.bo[buf].modifiable,
         term = vim.b[buf].foyer_terminal and buf or vim.b[buf].foyer_term,
         lines = vim.api.nvim_buf_get_lines(buf, first - 1, last, false),
         -- A buffer loaded without autocommands has no 'filetype' set: ask
@@ -136,12 +140,7 @@ end
 -- {filetype} where that extension says it back, `.txt` otherwise. Nil if it
 -- cannot be written.
 local function copy_lines(lines, filetype)
-    local ext = 'txt'
-    if filetype and filetype ~= ''
-        and vim.filetype.match({ filename = 'x.' .. filetype }) == filetype then
-        ext = filetype
-    end
-    local path = vim.fn.tempname() .. '.' .. ext
+    local path = vim.fn.tempname() .. '.' .. roundtrip.extension(filetype)
     local ok, rc = pcall(vim.fn.writefile, lines, path)
     if not ok or rc ~= 0 then return nil end
     return path
@@ -159,33 +158,49 @@ end
 -- still says where to look.
 --
 -- A buffer that is no file on disk has no path to name: the label says what
--- it is instead, so the agent does not go looking for one. Past
--- `selection_max_lines` a label alone would point it at nothing, so the lines
--- are copied to a file of their own, which the label names: a long paste is
--- what some agents' input boxes take worst. Should the copy fail, they go
--- inline after all.
+-- it is instead, so the agent does not go looking for one.
+--
+-- One an agent cannot edit where it is -- no file on disk, or a file with
+-- unsaved changes -- goes with a copy of all of it, which the label names and
+-- which the agent is to edit instead: what it writes there comes back into
+-- the buffer, see roundtrip.lua. A terminal's output is no such thing; past
+-- `selection_max_lines` its lines alone are copied, for the agent to read, a
+-- long paste being what some agents' input boxes take worst. Should a copy
+-- fail, the lines go inline after all.
 local function selection_block(sel)
     local info = sel.info
     local where = info.end_line == info.start_line
         and ('line %d'):format(info.start_line)
         or ('lines %d-%d'):format(info.start_line, info.end_line)
+    local copy
+    if sel.buf and sel.editable and (not info.current_file or sel.modified)
+        and vim.api.nvim_buf_is_valid(sel.buf) then
+        copy = roundtrip.copy(sel.buf, sel.filetype)
+    end
+    -- One line, so history can take it out again, see strip_selections().
     local label
     if info.current_file then
         local file = info.current_file
         if info.project_root then file = vim.fs.joinpath(info.project_root, file) end
         label = ('Selected in my editor: %s, %s'):format(file, where)
         -- Said outright, so an agent that does open the file is not misled by
-        -- it.
-        if sel.modified then label = label .. ' (unsaved; the file on disk differs)' end
+        -- it, nor edits it under the user's unsaved changes.
+        if copy then
+            label = label .. (' (unsaved: my buffer as it is now is in %s; edit that copy to change it, '
+                .. 'not the file)'):format(copy)
+        elseif sel.modified then
+            label = label .. ' (unsaved; the file on disk differs)'
+        end
     else
         local kind = info.kind and info.kind.label or 'a buffer with no file'
         label = ('Selected in my editor: %s of %s'):format(where, kind)
+        if copy then label = label .. (', in %s; edit that copy to change it'):format(copy) end
     end
 
     local max = config.selection_max_lines or 0
     if max <= 0 or #sel.lines > max then
-        if info.current_file then return label end
-        local copy = copy_lines(sel.lines, sel.filetype)
+        if info.current_file or copy then return label end
+        copy = copy_lines(sel.lines, sel.filetype)
         if copy then return ('%s, copied whole to %s'):format(label, copy) end
     end
     local text = table.concat(sel.lines, '\n')

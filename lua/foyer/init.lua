@@ -14,6 +14,7 @@ local context = require('foyer.context')
 local selection_appendix = context.selection_appendix
 local capture = context.capture
 local mention = require('foyer.mention')
+local roundtrip = require('foyer.roundtrip')
 local tabline = require('foyer.tabline')
 local last_output_time = {}
 -- What a terminal's program last reported of its state, for one that speaks
@@ -1639,6 +1640,7 @@ function M.send(term_key, opts)
                 init_command_buf(bufnr, win_id, seed, function(cmd)
                     clear_foyer_matches()
                     cmd = with_selection(cmd, vim.b[bufnr].foyer_selection)
+                    roundtrip.refresh(cmd)
                     if not is_blank(cmd) then
                         send_command(target_buf, cmd, "\r")
                     end

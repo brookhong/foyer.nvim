@@ -226,12 +226,21 @@ as it is sent: >
     ...the selected lines, as the buffer has them...
     ```
 <
-The label says when the buffer has unsaved changes. Past
-`selection_max_lines` only the label is sent. A buffer that is no file on
-disk -- unnamed, not saved yet, a scratch buffer, a terminal -- sends its
-lines, labelled for what it is, and past `selection_max_lines` a temporary
-file holding them, which the label names. A selection alone sends nothing;
-a `selection` you pass yourself is appended as given.
+Past `selection_max_lines` only the label is sent. A buffer that is no file
+on disk -- unnamed, not saved yet, a scratch buffer, a terminal -- sends its
+lines, labelled for what it is.
+
+                                                             *foyer-roundtrip*
+A buffer the agent cannot edit on disk -- one with no file, or with unsaved
+changes -- also goes as a temporary copy of the whole buffer, which the label
+names and tells the agent to edit instead. What the agent writes there comes
+back into the buffer as one undoable change, and the buffer stays unsaved.
+If you have edited the buffer since it was sent, it is left as it is and
+foyer names the copy, for |:diffsplit|. A terminal's output gets no copy to
+edit; past `selection_max_lines` its lines go in a file of their own.
+
+A selection alone sends nothing; a `selection` you pass yourself is appended
+as given.
 
 Foyer reuses the split or float it already has open rather than opening
 another. Launching a different terminal hands it to that terminal's prompt;

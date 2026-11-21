@@ -77,8 +77,10 @@ H.test('<C-l> puts in the selection block, the visual range around the line', fu
     child.type('<C-l>')
     local lines = child.lines()
     H.eq('look', lines[1], 'what came before stays above')
-    H.eq(('Selected in my editor: %s/lua/foyer/init.lua, lines 10-11 (unsaved; the file on disk differs)'):format(root),
-        lines[2], 'label')
+    local head = ('Selected in my editor: %s/lua/foyer/init.lua, lines 10-11 (unsaved: my buffer as it is now is in ')
+        :format(root)
+    H.eq(head, lines[2]:sub(1, #head), 'label: ' .. lines[2])
+    H.ok(lines[2]:match('/init%.lua; edit that copy to change it, not the file%)$'), 'naming the copy: ' .. lines[2])
     H.eq('```lua', lines[3], 'fence')
     H.eq('ocal project_root = options.project_root', lines[5], 'the buffer\'s unsaved text')
     H.eq({ '```', '' }, { lines[6], lines[7] }, 'closed, and a line to carry on in')

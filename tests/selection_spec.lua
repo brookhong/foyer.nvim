@@ -47,10 +47,14 @@ H.test('past selection_max_lines only the label goes', function()
     H.eq(('what is this?\n\nSelected in my editor: %s, lines 1-4'):format(path), sent, 'sent')
 end)
 
-H.test('unsaved edits are said, and the buffer\'s text is what goes', function()
+H.test('unsaved edits are said, the buffer\'s text goes, and a copy of it to edit', function()
     vim.api.nvim_buf_set_lines(file, 0, 0, false, { 'a line only the buffer has' })
     local sent = ask('1GV')
-    H.ok(sent:find(', line 1 (unsaved; the file on disk differs)\n', 1, true), sent)
+    local copy = sent:match(', line 1 %(unsaved: my buffer as it is now is in (%S+); edit that copy to change it, '
+        .. 'not the file%)\n')
+    H.ok(copy, sent)
+    H.eq('README.md', vim.fs.basename(copy), 'named as the file')
+    H.eq(vim.api.nvim_buf_get_lines(file, 0, -1, false), vim.fn.readfile(copy), 'the whole buffer, as it is')
     H.ok(sent:find('a line only the buffer has', 1, true), 'the buffer\'s line: ' .. sent)
 end)
 
@@ -91,16 +95,18 @@ end
 
 H.test('a selection in a buffer never written goes with its lines', function()
     local sent, title = ask_unnamed('1GVj', { 'local x = 1', 'return x' })
-    H.eq('what is this?\n\nSelected in my editor: lines 1-2 of a buffer with no file\n'
-        .. '```lua\nlocal x = 1\nreturn x\n```', sent, 'sent')
+    local copy = sent:match('^what is this%?\n\nSelected in my editor: lines 1%-2 of a buffer with no file, '
+        .. 'in (%S+); edit that copy to change it\n```lua\nlocal x = 1\nreturn x\n```$')
+    H.ok(copy, 'the label names a copy, and the lines go inline: ' .. sent)
+    H.eq('buffer.lua', vim.fs.basename(copy), 'named for its filetype')
     H.ok(title:find('+ [No Name]:1-2', 1, true), 'the frame says where from: ' .. title)
 end)
 
-H.test('past selection_max_lines, a buffer never written goes as a file the label names', function()
+H.test('past selection_max_lines, a buffer never written goes as its copy alone', function()
     local sent = ask_unnamed('1GV3j', { 'a', 'b', 'c', 'd' })
-    local label, path = sent:match('^what is this%?\n\n(Selected in my editor: lines 1%-4 of a buffer with no file),'
-        .. ' copied whole to (%S+%.lua)$')
-    H.ok(label, 'the label, naming the copy, and no lines inline: ' .. sent)
+    local path = sent:match('^what is this%?\n\nSelected in my editor: lines 1%-4 of a buffer with no file, '
+        .. 'in (%S+%.lua); edit that copy to change it$')
+    H.ok(path, 'the label, naming the copy, and no lines inline: ' .. sent)
     H.eq({ 'a', 'b', 'c', 'd' }, vim.fn.readfile(path), 'the copy holds the lines')
     H.ok(vim.startswith(path, vim.fs.dirname(vim.fn.tempname())), 'under tempname(): ' .. path)
 end)
@@ -113,14 +119,14 @@ H.test('a copy takes .txt for a filetype with no extension of its own', function
     H.press(function() foyer.prompt({ key = 'q' }) end, '1GV3j')
     H.send('what is this?')
     vim.cmd('stopinsert')
-    H.ok(H.last_text():match('copied whole to %S+%.txt\27%[201~\r$'), H.last_text())
+    H.ok(H.last_text():match('in %S+/buffer%.txt; edit that copy'), H.last_text())
 end)
 
 H.test('with selection_max_lines = 0, a buffer never written always goes as a file', function()
     foyer.setup({ selection_max_lines = 0 })
     local sent = ask_unnamed('1GV', { 'only' })
     foyer.setup({ selection_max_lines = 3 })
-    local path = sent:match('copied whole to (%S+)$')
+    local path = sent:match(', in (%S+); edit that copy to change it$')
     H.ok(path, sent)
     H.eq({ 'only' }, vim.fn.readfile(path), 'the copy')
 end)
@@ -162,8 +168,8 @@ H.test('a scratch buffer\'s lines go, said to be no file', function()
     vim.api.nvim_buf_set_name(0, 'Scratch')
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'scratch' })
     local sent, title = ask_here('1GV')
-    H.eq('what is this?\n\nSelected in my editor: line 1 of the buffer Scratch, which is no file on disk\n'
-        .. '```\nscratch\n```', sent, 'sent')
+    H.ok(sent:match('^what is this%?\n\nSelected in my editor: line 1 of the buffer Scratch, which is no file on disk, '
+        .. 'in %S+/Scratch; edit that copy to change it\n```\nscratch\n```$'), sent)
     H.ok(title:find('+ Scratch:1', 1, true), 'the frame: ' .. title)
 end)
 
@@ -172,8 +178,8 @@ H.test('a file not written yet goes as its lines, not a path to nothing', functi
     vim.cmd('edit not-written-yet.lua')
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'local y = 2' })
     local sent = ask_here('1GV')
-    H.eq('what is this?\n\nSelected in my editor: line 1 of the buffer not-written-yet.lua, which is no file on disk\n'
-        .. '```lua\nlocal y = 2\n```', sent, 'sent')
+    H.ok(sent:match('^what is this%?\n\nSelected in my editor: line 1 of the buffer not%-written%-yet%.lua, which is no '
+        .. 'file on disk, in %S+/not%-written%-yet%.lua; edit that copy to change it\n```lua\nlocal y = 2\n```$'), sent)
     vim.cmd('bwipeout!')
 end)
 
